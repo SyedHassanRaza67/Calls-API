@@ -31,13 +31,15 @@ router.get(
           ORDER BY u.created_at DESC`
       ));
     } else if (admin) {
+      // Admin sees their OWN row plus the agents they manage. The own row is
+      // required so the UI can render the admin group and nest agents under it.
       ({ rows } = await query(
         `SELECT u.id AS user_id, u.email, u.created_at,
                 p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
                 COALESCE((SELECT array_agg(role) FROM user_roles ur WHERE ur.user_id = u.id), '{}') AS roles
            FROM app_users u
            JOIN profiles p ON p.user_id = u.id
-          WHERE p.managed_by = $1
+          WHERE p.managed_by = $1 OR u.id = $1
           ORDER BY u.created_at DESC`,
         [me]
       ));
