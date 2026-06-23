@@ -1,0 +1,110 @@
+# docker-compose.yml — calls-api self-hosted stack
+#
+# Isolation strategy (so this never disturbs other projects on the VPS):
+#   - name: calls-api          -> dedicated Compose project name
+#   - networks: calls-api-net  -> isolated user-defined bridge network
+#   - volumes: pgdata          -> named volume, scoped to this project
+#   - host ports parameterized -> WEB_PORT (8088) / API_PORT (8080), DB not published
+#
+# All values come from the root .env (see DEPLOY.md for the full template).
+
+name: calls-api
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-calls}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-please}
+      POSTGRES_DB: ${POSTGRES_DB:-calls_api}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # First-init fallback: ordered db/*.sql are applied by the postgres entrypoint
+      # ONLY when the data directory is empty (i.e. the very first boot of the volume).
+      # On subsequent boots this is ignored. The authoritative migration path is the
+      # backend's idempotent runner (see the `backend` service command) which runs on
+      # every start and is safe to re-run. See DEPLOY.md "Database migrations".
+      - ./db:/docker-entrypoint-initdb.d:ro
+    # DB stays on the internal network only — no host port is published by default,
+    # so it cannot clash with another project's Postgres. To expose it on the host
+    # for a desktop SQL client, use the opt-in override file documented in DEPLOY.md
+    # (docker-compose.db-expose.yml) rather than editing this file.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-calls} -d ${POSTGRES_DB:-calls_api}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - calls-api-net
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # DATABASE_URL points at the `db` service over the internal network.
+      DATABASE_URL: postgres://${POSTGRES_USER:-calls}:${POSTGRES_PASSWORD:-change-me-please}@db:5432/${POSTGRES_DB:-calls_api}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      PORT: "8080"
+      NODE_ENV: ${NODE_ENV:-production}
+      # Seed super_admin bootstrap (consumed by the migration/seed runner).
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      # Integration secrets (ports of the Supabase edge functions). Empty = feature off.
+      RETREAVER_PUBLISHER_ID: ${RETREAVER_PUBLISHER_ID:-}
+      RETREAVER_RTB_KEY: ${RETREAVER_RTB_KEY:-}
+      RINGBA_API_TOKEN: ${RINGBA_API_TOKEN:-}
+      RINGBA_ACCOUNT_ID: ${RINGBA_ACCOUNT_ID:-}
+      LEADSPEDIA_API_KEY: ${LEADSPEDIA_API_KEY:-}
+      LEADSPEDIA_API_SECRET: ${LEADSPEDIA_API_SECRET:-}
+      TRACKDRIVE_API_KEY: ${TRACKDRIVE_API_KEY:-}
+    ports:
+      - ${API_PORT:-8080}:8080
+    # Run idempotent DB migrations + seed, then start the server. We prepend the
+    # migration runner so every deploy converges the schema, then hand off to the
+    # image's `npm start` (the backend Dockerfile owns how the server actually boots,
+    # so we don't hardcode its entrypoint path here). Migration failures abort startup
+    # (set -e) so a bad deploy fails loudly instead of serving a stale schema. The
+    # runner path is tolerant: db/migrate.mjs (repo layout) or migrate.mjs at the root.
+    command:
+      - sh
+      - -ec
+      - |
+        if [ -f db/migrate.mjs ]; then node db/migrate.mjs;
+        elif [ -f migrate.mjs ]; then node migrate.mjs;
+        else echo "WARN: no migrate.mjs found; relying on initdb fallback"; fi
+        exec npm start
+    networks:
+      - calls-api-net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # VITE_API_URL is baked into the SPA at build time. Default "/api" means the
+        # bundled nginx reverse-proxies /api -> backend (shared origin). To point the
+        # SPA straight at the API port instead, set VITE_API_URL=http://HOST:8080/api
+        # in .env and rebuild. See nginx.conf and DEPLOY.md.
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - ${WEB_PORT:-8088}:80
+    networks:
+      - calls-api-net
+
+networks:
+  calls-api-net:
+    name: calls-api-net
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: calls-api-pgdata

@@ -1,0 +1,30 @@
+# Keep build contexts small and secrets out of images.
+node_modules
+backend/node_modules
+dist
+backend/dist
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+.lovable
+coverage
+playwright-report
+test-results
+bun.lockb
+*.tsbuildinfo
+
+# Devops artifacts not needed inside images
+docker-compose*.yml
+Dockerfile.frontend
+deploy.sh
+backup.sh
+DEPLOY.md
+backups
