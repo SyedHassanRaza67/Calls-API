@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Send, Plus, Trash2, Loader2, Zap, Shield, Globe, Clock, X } from "lucide-react";
+import { Send, Plus, Trash2, Loader2, Clock, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -505,18 +505,11 @@ export function ApiTesterSection() {
   return (
     <section className="py-16 px-4" id="api-tester">
       <div className="max-w-6xl mx-auto">
-        {/* Hero Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-4">
-            <Zap className="h-3.5 w-3.5" />
-            API Playground
-          </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-3">
+        {/* Heading */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl md:text-4xl font-bold text-foreground">
             Test Any API <span className="text-gradient">Instantly</span>
           </h1>
-          <p className="text-muted-foreground max-w-lg mx-auto text-sm">
-            Send HTTP requests, inspect responses, and debug APIs — right from your browser. No setup required.
-          </p>
         </div>
 
         <Card className="border shadow-sm overflow-hidden">
@@ -703,31 +696,6 @@ export function ApiTesterSection() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Feature highlights */}
-        <div className="grid grid-cols-3 gap-6 mt-10 max-w-2xl mx-auto">
-          <div className="flex flex-col items-center text-center gap-2">
-            <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Zap className="h-4 w-4 text-primary" />
-            </div>
-            <span className="text-xs font-medium text-foreground">Fast & Reliable</span>
-            <span className="text-xs text-muted-foreground">Server-side proxy, no CORS issues</span>
-          </div>
-          <div className="flex flex-col items-center text-center gap-2">
-            <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Shield className="h-4 w-4 text-primary" />
-            </div>
-            <span className="text-xs font-medium text-foreground">Secure</span>
-            <span className="text-xs text-muted-foreground">Your keys stay in the request</span>
-          </div>
-          <div className="flex flex-col items-center text-center gap-2">
-            <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Globe className="h-4 w-4 text-primary" />
-            </div>
-            <span className="text-xs font-medium text-foreground">Any API</span>
-            <span className="text-xs text-muted-foreground">Works with any REST endpoint</span>
-          </div>
-        </div>
       </div>
     </section>
   );

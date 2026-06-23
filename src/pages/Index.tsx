@@ -9,7 +9,7 @@ const Index = () => {
     return <PausedAccountScreen reason={pausedReason} />;
   }
   return (
-    <Layout>
+    <Layout showFooter={false}>
       <ApiTesterSection />
     </Layout>
   );

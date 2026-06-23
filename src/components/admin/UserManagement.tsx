@@ -506,11 +506,18 @@ export function UserManagement() {
                 </div>
               ))}
             </div>
-          ) : grouped.groups.length === 0 && grouped.orphanAgents.length === 0 ? (
+          ) : (isSuperAdmin ? (grouped.groups.length === 0 && grouped.orphanAgents.length === 0) : totalAgentCount === 0) ? (
             <div className="text-center py-8 text-muted-foreground">
               {searchTerm
                 ? (isSuperAdmin ? "No users found matching your search." : "No agents found matching your search.")
                 : (isSuperAdmin ? "No users yet. Click 'Add User' to create one." : "No agents yet. Click 'Add Agent' to create one.")}
+            </div>
+          ) : !isSuperAdmin ? (
+            // Admins see a flat list of just their own agents (no admin header row).
+            <div className="space-y-1">
+              {grouped.groups.flatMap((g) => g.agents).map((a) => (
+                <UserRow key={a.user_id} u={a} />
+              ))}
             </div>
           ) : (
             <div className="space-y-2">
