@@ -22,6 +22,18 @@ export interface Profile {
   is_paused?: boolean;
   paused_at?: string | null;
   paused_reason?: string | null;
+  // /api/profiles returns the role(s) for each row; used as the source of truth.
+  roles?: string[];
+}
+
+// Reduce a roles[] array to a single role by privilege (super_admin > admin > agent).
+function pickRole(rolesArr?: string[] | null, fallback?: string): string {
+  if (Array.isArray(rolesArr) && rolesArr.length) {
+    if (rolesArr.includes("super_admin")) return "super_admin";
+    if (rolesArr.includes("admin")) return "admin";
+    return rolesArr[0] || "agent";
+  }
+  return fallback || "agent";
 }
 
 export interface UserRole {
@@ -75,7 +87,8 @@ export function useProfiles() {
       const data = await api.get<Profile[]>("/api/profiles");
       return data as Profile[];
     },
-    staleTime: 1000 * 60 * 5,
+    staleTime: 0,
+    refetchOnMount: "always",
     enabled,
   });
 }
@@ -100,7 +113,8 @@ export function useUserRoles() {
         return { user_id: u.user_id, role };
       }) as UserRole[];
     },
-    staleTime: 1000 * 60 * 5,
+    staleTime: 0,
+    refetchOnMount: "always",
     enabled,
   });
 }
@@ -185,7 +199,8 @@ export function useUsersWithRoles() {
     
     return {
       ...profile,
-      role: userRole?.role || "agent",
+      // Prefer the role embedded in the profile row; fall back to /api/users.
+      role: pickRole(profile.roles, userRole?.role),
       manager_name: managerProfile?.full_name || managerProfile?.email || null,
     };
   }) || [];
