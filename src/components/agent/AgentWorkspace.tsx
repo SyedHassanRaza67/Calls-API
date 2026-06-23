@@ -569,7 +569,9 @@ export function AgentWorkspace() {
         } else if (hasBid && funcData?.external_lead_id) {
           // Step 2: Auto-post with token
           const { data: postData, error: postError } = await callPingPost(
-            { action: "post", api_configuration_id: campaignId, caller_number: cleanedNumber, caller_state: submission.callerState, caller_zip: submission.callerZip, external_lead_id: funcData.external_lead_id, ...(agentFields ? { agent_fields: agentFields } : {}) }
+            // Pass lead_id so the backend UPDATEs the ping's lead row with the post
+            // result (status/DID/response), persisting it for later viewing + retry.
+            { action: "post", api_configuration_id: campaignId, caller_number: cleanedNumber, caller_state: submission.callerState, caller_zip: submission.callerZip, external_lead_id: funcData.external_lead_id, lead_id: funcData.lead_id, ...(agentFields ? { agent_fields: agentFields } : {}) }
           );
           if (postError) throw postError;
 
