@@ -67,11 +67,13 @@ router.get(
       return res.json(rows);
     }
     if (await isAdmin(userId)) {
+      // Include the admin's OWN profile plus the agents they manage, so the UI
+      // can render the admin and nest their agents under them.
       const { rows } = await query(
         `SELECT p.*, COALESCE(
             (SELECT array_agg(ur.role) FROM user_roles ur WHERE ur.user_id = p.user_id), '{}'
           ) AS roles
-         FROM profiles p WHERE p.managed_by = $1 ORDER BY p.created_at DESC`,
+         FROM profiles p WHERE p.managed_by = $1 OR p.user_id = $1 ORDER BY p.created_at DESC`,
         [userId]
       );
       return res.json(rows);

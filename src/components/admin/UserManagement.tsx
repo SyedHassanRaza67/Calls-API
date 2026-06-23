@@ -420,7 +420,7 @@ export function UserManagement() {
       )}
       <div className="flex flex-col md:flex-row justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">User Management</h1>
+          <h1 className="text-2xl font-bold">{isSuperAdmin ? "User Management" : "Agents Management"}</h1>
           <p className="text-muted-foreground">
             {isSuperAdmin ? "Manage all admins and their agents." : "Manage your agents and their permissions."}
           </p>
@@ -485,7 +485,7 @@ export function UserManagement() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search users..."
+                placeholder={isSuperAdmin ? "Search users..." : "Search agents..."}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9 w-full md:w-[300px]"
@@ -508,7 +508,9 @@ export function UserManagement() {
             </div>
           ) : grouped.groups.length === 0 && grouped.orphanAgents.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {searchTerm ? "No users found matching your search." : "No users yet. Click 'Add User' to create one."}
+              {searchTerm
+                ? (isSuperAdmin ? "No users found matching your search." : "No agents found matching your search.")
+                : (isSuperAdmin ? "No users yet. Click 'Add User' to create one." : "No agents yet. Click 'Add Agent' to create one.")}
             </div>
           ) : (
             <div className="space-y-2">

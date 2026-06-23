@@ -81,7 +81,7 @@ export default function AdminDashboardPage() {
   const navItems = [
     { path: "/admin", label: "Dashboard", icon: LayoutDashboard },
     { path: "/admin/leads", label: "Leads", icon: Phone },
-    { path: "/admin/users", label: "Users", icon: Users },
+    { path: "/admin/users", label: isSuperAdmin ? "Users" : "Agents", icon: Users },
     { path: "/admin/apis", label: "APIs", icon: Key },
     { path: "/admin/analytics", label: "Analytics", icon: BarChart3 },
     { path: "/admin/settings", label: "Settings", icon: Settings },

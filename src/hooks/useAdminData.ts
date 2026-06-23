@@ -87,9 +87,18 @@ export function useUserRoles() {
   return useQuery({
     queryKey: ["user_roles", uid],
     queryFn: async () => {
-      // /api/users lists users+roles+profiles (scoped). Reduce to {user_id, role}.
-      const data = await api.get<Array<{ user_id: string; role?: string }>>("/api/users");
-      return (data || []).map((u) => ({ user_id: u.user_id, role: u.role || "agent" })) as UserRole[];
+      // /api/users lists users+roles+profiles (scoped). The API returns `roles`
+      // as an array; reduce to a single { user_id, role } using privilege order.
+      const data = await api.get<Array<{ user_id: string; role?: string; roles?: string[] }>>("/api/users");
+      return (data || []).map((u) => {
+        const rs = Array.isArray(u.roles) ? u.roles : u.role ? [u.role] : [];
+        const role = rs.includes("super_admin")
+          ? "super_admin"
+          : rs.includes("admin")
+            ? "admin"
+            : rs[0] || "agent";
+        return { user_id: u.user_id, role };
+      }) as UserRole[];
     },
     staleTime: 1000 * 60 * 5,
     enabled,
