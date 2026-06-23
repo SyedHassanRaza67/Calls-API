@@ -28,6 +28,8 @@ export default function Auth() {
   const [signupName, setSignupName] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
+  const [signupCompany, setSignupCompany] = useState("");
+  const [signupPhone, setSignupPhone] = useState("");
 
   // Reset flow
   const [resetEmail, setResetEmail] = useState("");
@@ -64,12 +66,18 @@ export default function Auth() {
     }
     setIsLoading(true);
     try {
-      await signUp(signupEmail, signupPassword, signupName);
+      await signUp(signupEmail, signupPassword, signupName, signupCompany, signupPhone);
+      // No token is issued — the account is pending Super Admin approval.
+      // Do NOT navigate; switch back to sign-in and surface a clear success state.
       toast({
-        title: "Account created",
-        description: "You're now signed in.",
+        title: "Registration submitted",
+        description:
+          "Your account is pending Super Admin approval. You can sign in once approved.",
       });
-      navigate("/agent");
+      // Reset the signup fields and return to the sign-in form.
+      setSignupPassword("");
+      setEmail(signupEmail);
+      setMode("signin");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Failed to sign up";
       toast({ title: "Sign up failed", description: message, variant: "destructive" });
@@ -223,6 +231,28 @@ export default function Auth() {
                     placeholder="you@example.com"
                     value={signupEmail}
                     onChange={(e) => setSignupEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-company">Company name</Label>
+                  <Input
+                    id="signup-company"
+                    type="text"
+                    placeholder="Acme Inc."
+                    value={signupCompany}
+                    onChange={(e) => setSignupCompany(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-phone">Phone</Label>
+                  <Input
+                    id="signup-phone"
+                    type="tel"
+                    placeholder="+1 555 123 4567"
+                    value={signupPhone}
+                    onChange={(e) => setSignupPhone(e.target.value)}
                     required
                   />
                 </div>

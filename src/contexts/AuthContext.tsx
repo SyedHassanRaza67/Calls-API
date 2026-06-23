@@ -25,7 +25,13 @@ interface AuthContextType {
   pausedReason: string | null;
   isGlobalPaused: boolean;
   globalPauseReason: string | null;
-  signUp: (email: string, password: string, fullName?: string) => Promise<void>;
+  signUp: (
+    email: string,
+    password: string,
+    fullName?: string,
+    company?: string,
+    phone?: string
+  ) => Promise<{ status: string; message: string }>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -115,9 +121,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [hydrate, fetchGlobalPause]);
 
-  const signUp = async (email: string, password: string, fullName?: string) => {
-    await api.auth.signUp(email, password, fullName);
-    await hydrate();
+  const signUp = async (
+    email: string,
+    password: string,
+    fullName?: string,
+    company?: string,
+    phone?: string
+  ) => {
+    // Signup no longer logs the user in; it returns a pending-approval result.
+    return await api.auth.signUp(email, password, fullName, company, phone);
   };
 
   const signIn = async (email: string, password: string) => {

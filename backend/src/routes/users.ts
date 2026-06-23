@@ -24,7 +24,7 @@ router.get(
     if (superAdmin) {
       ({ rows } = await query(
         `SELECT u.id AS user_id, u.email, u.created_at,
-                p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason,
+                p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
                 COALESCE((SELECT array_agg(role) FROM user_roles ur WHERE ur.user_id = u.id), '{}') AS roles
            FROM app_users u
            LEFT JOIN profiles p ON p.user_id = u.id
@@ -33,7 +33,7 @@ router.get(
     } else if (admin) {
       ({ rows } = await query(
         `SELECT u.id AS user_id, u.email, u.created_at,
-                p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason,
+                p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
                 COALESCE((SELECT array_agg(role) FROM user_roles ur WHERE ur.user_id = u.id), '{}') AS roles
            FROM app_users u
            JOIN profiles p ON p.user_id = u.id
@@ -44,7 +44,7 @@ router.get(
     } else {
       ({ rows } = await query(
         `SELECT u.id AS user_id, u.email, u.created_at,
-                p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason,
+                p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
                 COALESCE((SELECT array_agg(role) FROM user_roles ur WHERE ur.user_id = u.id), '{}') AS roles
            FROM app_users u
            LEFT JOIN profiles p ON p.user_id = u.id
@@ -53,6 +53,43 @@ router.get(
       ));
     }
     res.json(rows);
+  })
+);
+
+// ── GET /api/users/pending — self-signups awaiting approval (super_admin) ─
+// MUST be registered before any GET /:userId route so "pending" is not
+// captured as a :userId param.
+router.get(
+  "/pending",
+  requireSuperAdmin,
+  asyncHandler(async (_req, res) => {
+    const { rows } = await query(
+      `SELECT user_id, email, full_name, company, phone, created_at
+         FROM profiles
+        WHERE approval_status = 'pending'
+        ORDER BY created_at DESC`
+    );
+    res.json(rows);
+  })
+);
+
+// ── POST /api/users/:userId/approval — approve/reject a signup (super_admin)
+const approvalSchema = z.object({ status: z.enum(["approved", "rejected"]) });
+
+router.post(
+  "/:userId/approval",
+  requireSuperAdmin,
+  asyncHandler(async (req, res) => {
+    const userId = req.params.userId;
+    const { status } = approvalSchema.parse(req.body);
+
+    const { rowCount } = await query(
+      "UPDATE profiles SET approval_status = $2, updated_at = now() WHERE user_id = $1",
+      [userId, status]
+    );
+    if (rowCount === 0) throw new HttpError(404, "Profile not found");
+
+    res.json({ ok: true });
   })
 );
 

@@ -20,6 +20,8 @@ const signupSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6, "Password must be at least 6 characters"),
   full_name: z.string().optional(),
+  company: z.string().optional(),
+  phone: z.string().optional(),
 });
 
 const signinSchema = z.object({
@@ -27,11 +29,12 @@ const signinSchema = z.object({
   password: z.string().min(1),
 });
 
-// POST /api/auth/signup — new users default to role `agent` (NOT admin).
+// POST /api/auth/signup — self-signup creates a PENDING `admin` awaiting
+// Super-Admin approval. No JWT is issued until the account is approved.
 router.post(
   "/signup",
   asyncHandler(async (req, res) => {
-    const { email, password, full_name } = signupSchema.parse(req.body);
+    const { email, password, full_name, company, phone } = signupSchema.parse(req.body);
     const normalizedEmail = email.toLowerCase().trim();
 
     const existing = await query("SELECT 1 FROM app_users WHERE lower(email) = $1", [normalizedEmail]);
@@ -41,7 +44,7 @@ router.post(
 
     const passwordHash = await hashPassword(password);
 
-    const userId = await withTransaction(async (client) => {
+    await withTransaction(async (client) => {
       const userRes = await client.query<{ id: string }>(
         "INSERT INTO app_users (email, password_hash) VALUES ($1, $2) RETURNING id",
         [normalizedEmail, passwordHash]
@@ -49,15 +52,20 @@ router.post(
       const id = userRes.rows[0].id;
 
       await client.query(
-        "INSERT INTO profiles (user_id, email, full_name) VALUES ($1, $2, $3)",
-        [id, normalizedEmail, full_name || ""]
+        `INSERT INTO profiles (user_id, email, full_name, company, phone, approval_status)
+         VALUES ($1, $2, $3, $4, $5, 'pending')`,
+        [id, normalizedEmail, full_name || "", company || null, phone || null]
       );
-      await client.query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'agent')", [id]);
+      await client.query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'admin')", [id]);
       return id;
     });
 
-    const token = signToken({ sub: userId, email: normalizedEmail });
-    res.status(201).json({ token, user: { id: userId, email: normalizedEmail } });
+    // No JWT — the account is pending Super-Admin approval.
+    res.status(200).json({
+      status: "pending",
+      message:
+        "Registration submitted. Your account is pending Super Admin approval — you can sign in once approved.",
+    });
   })
 );
 
@@ -75,6 +83,22 @@ router.post(
     const user = rows[0];
     if (!user || !(await verifyPassword(password, user.password_hash))) {
       throw new HttpError(401, "Invalid email or password");
+    }
+
+    // Block sign-in for accounts that are still pending or were rejected.
+    const approvalRes = await query<{ approval_status: string | null }>(
+      "SELECT approval_status FROM profiles WHERE user_id = $1",
+      [user.id]
+    );
+    const approvalStatus = approvalRes.rows[0]?.approval_status ?? null;
+    if (approvalStatus === "pending") {
+      throw new HttpError(403, "Your account is pending Super Admin approval.");
+    }
+    if (approvalStatus === "rejected") {
+      throw new HttpError(
+        403,
+        "Your registration request was rejected. Please contact the administrator."
+      );
     }
 
     const token = signToken({ sub: user.id, email: user.email });

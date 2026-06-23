@@ -113,14 +113,28 @@ export const api = {
   clearToken,
 
   auth: {
-    async signUp(email: string, password: string, fullName?: string) {
-      const res = await request<{ token: string; user: { id: string; email: string } }>(
+    async signUp(
+      email: string,
+      password: string,
+      fullName?: string,
+      company?: string,
+      phone?: string
+    ) {
+      // Signup creates a PENDING account that requires Super Admin approval.
+      // The backend returns { status: 'pending', message } and NO token —
+      // the user cannot sign in until approved.
+      const res = await request<{ status: string; message: string }>(
         "POST",
         "/api/auth/signup",
-        { email, password, full_name: fullName || "" },
+        {
+          email,
+          password,
+          full_name: fullName || "",
+          company: company || null,
+          phone: phone || null,
+        },
         { skipAuth: true }
       );
-      if (res?.token) setToken(res.token);
       return res;
     },
     async signIn(email: string, password: string) {

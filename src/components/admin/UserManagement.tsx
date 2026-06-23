@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Search, UserPlus, Loader2, Shield, User, Users, Trash2, ChevronDown, ChevronRight, KeyRound, Eye, EyeOff, Copy, Check, Pause, Play } from "lucide-react";
+import { Search, UserPlus, Loader2, Shield, User, Users, Trash2, ChevronDown, ChevronRight, KeyRound, Eye, EyeOff, Copy, Check, Pause, Play, Clock, Building2, Phone, Mail, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { useUsersWithRoles, useInvalidateAdminData } from "@/hooks/useAdminData";
@@ -95,6 +96,32 @@ export function UserManagement() {
   // Pause state
   const [pauseTarget, setPauseTarget] = useState<{ id: string; name: string; pause: boolean } | null>(null);
   const [isPausing, setIsPausing] = useState(false);
+
+  // Pending signup approvals (super_admin only)
+  const queryClient = useQueryClient();
+  const { data: pendingApprovals = [] } = useQuery<
+    Array<{ user_id: string; email: string | null; full_name: string | null; company: string | null; phone: string | null; created_at: string }>
+  >({
+    queryKey: ["pending-approvals", currentUser?.id],
+    queryFn: () => api.get("/api/users/pending"),
+    enabled: isSuperAdmin,
+  });
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+
+  const handleApproval = async (userId: string, status: "approved" | "rejected") => {
+    setApprovingId(userId);
+    try {
+      await api.post(`/api/users/${userId}/approval`, { status });
+      toast.success(status === "approved" ? "Account approved" : "Registration rejected");
+      queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      invalidateProfiles();
+      invalidateUserRoles();
+    } catch (error: any) {
+      toast.error(error instanceof ApiError ? error.message : (error?.message || "Failed to update approval"));
+    } finally {
+      setApprovingId(null);
+    }
+  };
 
   // Group: top-level = admins/super_admins, with their agents nested under them.
   // Regular admins only see themselves + their own agents (tenant isolation).
@@ -338,6 +365,59 @@ export function UserManagement() {
   return (
     <div className="space-y-6">
       {isSuperAdmin && <GlobalPauseCard />}
+
+      {isSuperAdmin && pendingApprovals.length > 0 && (
+        <Card className="bg-card/50 border-amber-300/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-amber-600" />
+              Pending Approvals
+              <Badge className="bg-amber-100 text-amber-700 border-amber-300">{pendingApprovals.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {pendingApprovals.map((p) => (
+              <div
+                key={p.user_id}
+                className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 rounded-md border border-border bg-background"
+              >
+                <div className="min-w-0 space-y-1">
+                  <p className="font-medium text-sm truncate">{p.full_name || "No name"}</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{p.email}</span>
+                    {p.company && <span className="flex items-center gap-1"><Building2 className="h-3 w-3" />{p.company}</span>}
+                    {p.phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{p.phone}</span>}
+                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(p.created_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    disabled={approvingId === p.user_id}
+                    onClick={() => handleApproval(p.user_id, "approved")}
+                  >
+                    {approvingId === p.user_id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <><Check className="h-4 w-4 mr-1" />Approve</>
+                    )}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                    disabled={approvingId === p.user_id}
+                    onClick={() => handleApproval(p.user_id, "rejected")}
+                  >
+                    <X className="h-4 w-4 mr-1" />Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
       <div className="flex flex-col md:flex-row justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">User Management</h1>
