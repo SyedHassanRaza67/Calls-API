@@ -26,12 +26,24 @@ export interface Profile {
   roles?: string[];
 }
 
-// Reduce a roles[] array to a single role by privilege (super_admin > admin > agent).
-function pickRole(rolesArr?: string[] | null, fallback?: string): string {
-  if (Array.isArray(rolesArr) && rolesArr.length) {
-    if (rolesArr.includes("super_admin")) return "super_admin";
-    if (rolesArr.includes("admin")) return "admin";
-    return rolesArr[0] || "agent";
+// Normalize a roles value into a string[]. Accepts a real array (["admin"]) OR a
+// Postgres array literal string ("{admin,agent}") which node-postgres returns for
+// enum arrays. Robust against either backend representation.
+function toRolesArray(roles: unknown): string[] {
+  if (Array.isArray(roles)) return roles.map(String);
+  if (typeof roles === "string") {
+    return roles.replace(/^\{|\}$/g, "").split(",").map((s) => s.trim().replace(/^"|"$/g, "")).filter(Boolean);
+  }
+  return [];
+}
+
+// Reduce roles to a single role by privilege (super_admin > admin > agent).
+function pickRole(roles: unknown, fallback?: string): string {
+  const arr = toRolesArray(roles);
+  if (arr.length) {
+    if (arr.includes("super_admin")) return "super_admin";
+    if (arr.includes("admin")) return "admin";
+    return arr[0] || "agent";
   }
   return fallback || "agent";
 }
@@ -102,16 +114,8 @@ export function useUserRoles() {
     queryFn: async () => {
       // /api/users lists users+roles+profiles (scoped). The API returns `roles`
       // as an array; reduce to a single { user_id, role } using privilege order.
-      const data = await api.get<Array<{ user_id: string; role?: string; roles?: string[] }>>("/api/users");
-      return (data || []).map((u) => {
-        const rs = Array.isArray(u.roles) ? u.roles : u.role ? [u.role] : [];
-        const role = rs.includes("super_admin")
-          ? "super_admin"
-          : rs.includes("admin")
-            ? "admin"
-            : rs[0] || "agent";
-        return { user_id: u.user_id, role };
-      }) as UserRole[];
+      const data = await api.get<Array<{ user_id: string; role?: string; roles?: unknown }>>("/api/users");
+      return (data || []).map((u) => ({ user_id: u.user_id, role: pickRole(u.roles, u.role) })) as UserRole[];
     },
     staleTime: 0,
     refetchOnMount: "always",

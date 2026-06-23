@@ -60,7 +60,7 @@ router.get(
     if (await isSuperAdmin(userId)) {
       const { rows } = await query(
         `SELECT p.*, COALESCE(
-            (SELECT array_agg(ur.role) FROM user_roles ur WHERE ur.user_id = p.user_id), '{}'
+            (SELECT array_agg(ur.role::text) FROM user_roles ur WHERE ur.user_id = p.user_id), '{}'
           ) AS roles
          FROM profiles p ORDER BY p.created_at DESC`
       );
@@ -71,7 +71,7 @@ router.get(
       // can render the admin and nest their agents under them.
       const { rows } = await query(
         `SELECT p.*, COALESCE(
-            (SELECT array_agg(ur.role) FROM user_roles ur WHERE ur.user_id = p.user_id), '{}'
+            (SELECT array_agg(ur.role::text) FROM user_roles ur WHERE ur.user_id = p.user_id), '{}'
           ) AS roles
          FROM profiles p WHERE p.managed_by = $1 OR p.user_id = $1 ORDER BY p.created_at DESC`,
         [userId]
