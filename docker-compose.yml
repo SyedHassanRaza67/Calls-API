@@ -64,7 +64,10 @@ services:
       LEADSPEDIA_API_SECRET: ${LEADSPEDIA_API_SECRET:-}
       TRACKDRIVE_API_KEY: ${TRACKDRIVE_API_KEY:-}
     ports:
-      - ${API_PORT:-8080}:8080
+      # Bind to localhost by default so the API is reachable only via the host's
+      # reverse proxy (system nginx), not directly on the public interface.
+      # Set API_BIND=0.0.0.0 in .env to publish it on all interfaces.
+      - ${API_BIND:-127.0.0.1}:${API_PORT:-8080}:8080
     # Run idempotent DB migrations + seed, then start the server. We prepend the
     # migration runner so every deploy converges the schema, then hand off to the
     # image's `npm start` (the backend Dockerfile owns how the server actually boots,
