@@ -57,6 +57,24 @@ function setByPath(obj: Record<string, unknown>, path: string, value: unknown): 
   current[parts[parts.length - 1]] = value;
 }
 
+/**
+ * Read the first matching key from an object case-insensitively. Lets the
+ * generic ping/post engine understand providers that use PascalCase response
+ * fields (e.g. PX: Success / Payout / TransactionId) without a dedicated adapter.
+ */
+function ciGet(obj: unknown, ...keys: string[]): unknown {
+  if (!obj || typeof obj !== "object") return undefined;
+  const lower: Record<string, unknown> = {};
+  for (const k of Object.keys(obj as Record<string, unknown>)) {
+    lower[k.toLowerCase()] = (obj as Record<string, unknown>)[k];
+  }
+  for (const k of keys) {
+    const v = lower[k.toLowerCase()];
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
 function sanitizeUrl(url: string): string {
   return url.replace(/^(GET|POST|PUT|PATCH|DELETE)\s+/i, "").trim();
 }
@@ -647,14 +665,19 @@ export async function runPingPost(
     }
 
     if (apiProvider !== "trackdrive") {
-      const successFlag =
-        pingData.success === true || pingData.success === "true" || pingData.accepted === true ||
-        pingData.status === "reserved" || pingData.status === "ok" || pingData.status === "accepted";
-      hasBid =
-        successFlag || pingData.bid !== undefined || pingData.price !== undefined ||
-        pingData.payout !== undefined || pingData.retreaver_payout !== undefined;
-      const rawBid = pingData.bid ?? pingData.price ?? pingData.payout ?? pingData.retreaver_payout ?? 0;
-      bidAmount = typeof rawBid === "string" ? parseFloat(rawBid) || 0 : (rawBid as number);
+      // Case-insensitive reads so PascalCase providers (e.g. PX: Success/Payout) work.
+      const successField = ciGet(pingData, "success", "accepted");
+      const statusVal = String(ciGet(pingData, "status") ?? "").toLowerCase();
+      const rawBidVal = ciGet(pingData, "bid", "price", "payout", "retreaver_payout");
+      const rawBid = rawBidVal ?? 0;
+      bidAmount = typeof rawBid === "string" ? parseFloat(rawBid) || 0 : (typeof rawBid === "number" ? rawBid : 0);
+      if (successField !== undefined) {
+        // An explicit success/accepted flag is authoritative when present.
+        hasBid = successField === true || successField === "true";
+      } else {
+        hasBid =
+          ["reserved", "ok", "accepted"].includes(statusVal) || rawBidVal !== undefined;
+      }
     }
 
     const pingDid = (pingData.inbound_number || pingData.number || pingData.routing_number || pingData.tracking_number || pingData.did || pingData.phoneNumber) as string | undefined;
@@ -687,22 +710,15 @@ export async function runPingPost(
           http_status: pingUpstreamStatus,
         },
       };
-    } else if (pingData.error || pingData.rejected || pingData.accepted === false) {
-      return {
-        status: 200,
-        body: {
-          ok: false,
-          action: "ping",
-          has_bid: false,
-          error: pingData.error || pingData.message || "No buyer available",
-          raw: pingData,
-          http_status: pingUpstreamStatus,
-        },
-      };
     } else {
+      const errs = ciGet(pingData, "errors");
+      const errMsg =
+        ciGet(pingData, "error", "message") ||
+        (Array.isArray(errs) ? (errs as unknown[]).join(", ") : errs) ||
+        "No buyer available";
       return {
         status: 200,
-        body: { ok: false, action: "ping", has_bid: false, error: "No bid received", raw: pingData, http_status: pingUpstreamStatus },
+        body: { ok: false, action: "ping", has_bid: false, error: errMsg as string, raw: pingData, http_status: pingUpstreamStatus },
       };
     }
   }
@@ -826,25 +842,28 @@ export async function runPingPost(
       };
     }
 
-    const trackingNumber =
-      postData.forwarding_number ||
-      postData.inbound_number ||
-      postData.number ||
-      postData.routing_number ||
-      postData.tracking_number ||
-      postData.phone_number ||
-      postData.phoneNumber ||
-      postData.destination_number ||
-      postData.dial_number ||
-      postData.did;
+    const trackingNumber = ciGet(
+      postData,
+      "forwarding_number", "inbound_number", "number", "routing_number",
+      "tracking_number", "phone_number", "phoneNumber", "destination_number",
+      "dial_number", "did"
+    );
 
-    const payout = postData.payout || postData.price || postData.bid;
+    const payout = ciGet(postData, "payout", "price", "bid");
 
-    if (trackingNumber) {
+    // Case-insensitive success flag — e.g. PX returns { Success: true } and may
+    // not echo a number; the agent then transfers to the campaign's forwarding DID.
+    const postSuccessField = ciGet(postData, "success", "accepted");
+    const postSuccess = postSuccessField === true || postSuccessField === "true";
+    const fallbackDid = (apiConfig.trackdrive_number as string | null | undefined) || "";
+    const postErr = ciGet(postData, "error");
+
+    if (trackingNumber || postSuccess) {
+      const finalDid = trackingNumber ? String(trackingNumber) : fallbackDid;
       if (lead_id) {
         await query(
           `UPDATE leads SET submission_stage = 'complete', returned_did = $2, status = 'success', api_response = $3 WHERE id = $1`,
-          [lead_id, String(trackingNumber), JSON.stringify(postData)]
+          [lead_id, finalDid, JSON.stringify(postData)]
         );
       }
       return {
@@ -852,27 +871,26 @@ export async function runPingPost(
         body: {
           ok: true,
           action: "post",
-          did: String(trackingNumber),
+          did: finalDid || undefined,
           payout,
           raw: postData,
           http_status: postUpstreamStatus,
         },
       };
-    } else if (postData.error) {
+    } else if (postErr) {
       return {
         status: 200,
-        body: { ok: false, action: "post", error: postData.error, raw: postData, http_status: postUpstreamStatus },
+        body: { ok: false, action: "post", error: postErr as string, raw: postData, http_status: postUpstreamStatus },
       };
     } else {
+      const errs = ciGet(postData, "errors");
+      const msg =
+        ciGet(postData, "info", "message") ||
+        (Array.isArray(errs) ? (errs as unknown[]).join(", ") : errs) ||
+        "No tracking number returned";
       return {
         status: 200,
-        body: {
-          ok: false,
-          action: "post",
-          error: postData.info || postData.message || "No tracking number returned",
-          raw: postData,
-          http_status: postUpstreamStatus,
-        },
+        body: { ok: false, action: "post", error: msg as string, raw: postData, http_status: postUpstreamStatus },
       };
     }
   }
