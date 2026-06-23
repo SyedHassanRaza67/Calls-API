@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { Clock } from "lucide-react";
 import { useDuplicateCid } from "@/hooks/useDuplicateCid";
 
 interface Props {
@@ -21,26 +21,22 @@ export function DuplicateCidNotice({ callerNumber, className }: Props) {
   const { matches } = useDuplicateCid(callerNumber);
   if (!matches.length) return null;
 
-  const lastSeen = matches[0]?.createdAt;
-
   return (
     <div
       className={
-        "rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100 px-3 py-2 text-xs space-y-1 " +
+        "rounded-md border border-sky-500/30 bg-sky-500/10 text-sky-900 dark:text-sky-100 px-2.5 py-1.5 text-[11px] space-y-0.5 " +
         (className || "")
       }
     >
-      <div className="flex items-center gap-2 font-medium">
-        <AlertTriangle className="h-3.5 w-3.5" />
-        This CID was previously routed to:
-        {lastSeen && <span className="ml-auto opacity-70">last: {relTime(lastSeen)}</span>}
+      <div className="flex items-center gap-1.5 font-medium">
+        <Clock className="h-3 w-3 flex-shrink-0" />
+        This CID Previously Used:
       </div>
-      <ul className="pl-5 list-disc space-y-0.5">
+      <ul className="space-y-0.5">
         {matches.slice(0, 10).map((m, i) => (
-          <li key={i} className="break-all">
-            <span className="font-semibold">{m.campaignName}</span>
-            <span className="opacity-70"> → </span>
-            <span className="font-mono">{m.did}</span>
+          <li key={i} className="flex items-center justify-between gap-2">
+            <span className="font-semibold truncate">{m.campaignName}</span>
+            <span className="opacity-70 whitespace-nowrap">{relTime(m.createdAt)}</span>
           </li>
         ))}
       </ul>

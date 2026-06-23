@@ -68,7 +68,7 @@ router.get(
 
 const createSchema = z.object({
   name: z.string().min(1),
-  api_key: z.string().optional().default(""),
+  api_key: z.string().nullable().optional(),
   publisher_id: z.string().optional().nullable(),
   api_type: z.string().optional(),
   api_provider: z.string().optional(),
