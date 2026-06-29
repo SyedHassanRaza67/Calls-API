@@ -25,6 +25,7 @@ bun.lockb
 docker-compose*.yml
 Dockerfile.frontend
 deploy.sh
+deploy-hybrid.sh
 backup.sh
 DEPLOY.md
 backups

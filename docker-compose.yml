@@ -41,7 +41,11 @@ services:
 
   backend:
     build:
-      context: ./backend
+      # Context is the repo root (not ./backend) so the image can also bake in the
+      # db/ migration files (migrate.mjs + ordered *.sql). The root .dockerignore
+      # keeps node_modules/dist out, so the context stays small.
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     depends_on:
       db:
