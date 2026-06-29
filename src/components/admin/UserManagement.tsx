@@ -35,7 +35,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Search, UserPlus, Loader2, Shield, User, Users, Trash2, ChevronDown, ChevronRight, KeyRound, Eye, EyeOff, Copy, Check, Pause, Play, Clock, Building2, Phone, Mail, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import { getEmailDomain } from "@/lib/emailProviders";
 import { toast } from "sonner";
 import { useUsersWithRoles, useInvalidateAdminData } from "@/hooks/useAdminData";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -78,6 +77,7 @@ export function UserManagement() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserLocalPart, setNewUserLocalPart] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserName, setNewUserName] = useState("");
   const [newUserRole, setNewUserRole] = useState<"agent" | "admin">("agent");
@@ -169,16 +169,15 @@ export function UserManagement() {
     return domain || null;
   }, [users, currentUser]);
 
-  // Soft client-side validation: surface a mismatch between the entered agent
-  // email's domain and the admin's company domain. The server is authoritative.
-  const emailDomainError = useMemo(() => {
-    if (!currentAdminDomain || !newUserEmail) return null;
-    const domain = getEmailDomain(newUserEmail);
-    if (domain && domain !== currentAdminDomain) {
-      return `Agents must use an @${currentAdminDomain} email address.`;
+  // When the admin has a fixed company domain, they type only the local part
+  // (the name before @); validate it has no spaces/@ and uses safe characters.
+  const localPartError = useMemo(() => {
+    if (!currentAdminDomain || !newUserLocalPart) return null;
+    if (!/^[a-zA-Z0-9._%+-]+$/.test(newUserLocalPart.trim())) {
+      return "Use only letters, numbers and . _ % + - (no spaces or @).";
     }
     return null;
-  }, [currentAdminDomain, newUserEmail]);
+  }, [currentAdminDomain, newUserLocalPart]);
 
   const adminCount = grouped.groups.length;
   const totalAgentCount = grouped.groups.reduce((acc, g) => acc + g.agents.length, 0) + grouped.orphanAgents.length;
@@ -193,23 +192,23 @@ export function UserManagement() {
   }, []);
 
   const handleCreateUser = async () => {
-    if (!newUserEmail || !newUserPassword) {
+    // If this admin has a fixed company domain, compose the email from the typed
+    // local part; otherwise (super-admin / legacy) use the full email field.
+    const email = currentAdminDomain
+      ? (newUserLocalPart.trim() ? `${newUserLocalPart.trim().toLowerCase()}@${currentAdminDomain}` : "")
+      : newUserEmail.trim();
+    if (!email || !newUserPassword) {
       toast.error("Email and password are required");
       return;
     }
-    // Soft client-side guard: if this admin has a company domain, require the
-    // agent email to match it. The server enforces the same rule as a backstop.
-    if (currentAdminDomain) {
-      const domain = getEmailDomain(newUserEmail);
-      if (!domain || domain !== currentAdminDomain) {
-        toast.error(`Agents must use an @${currentAdminDomain} email address.`);
-        return;
-      }
+    if (currentAdminDomain && localPartError) {
+      toast.error(localPartError);
+      return;
     }
     setIsCreating(true);
     try {
       await api.post("/api/users", {
-        email: newUserEmail,
+        email,
         password: newUserPassword,
         full_name: newUserName,
         role: newUserRole,
@@ -217,7 +216,7 @@ export function UserManagement() {
 
       toast.success(`${newUserRole === "admin" ? "Admin" : "Agent"} created successfully!`);
       setIsDialogOpen(false);
-      setNewUserEmail(""); setNewUserPassword(""); setNewUserName(""); setNewUserRole("agent");
+      setNewUserEmail(""); setNewUserLocalPart(""); setNewUserPassword(""); setNewUserName(""); setNewUserRole("agent");
       setTimeout(() => { invalidateProfiles(); invalidateUserRoles(); }, 1000);
     } catch (error: any) {
       let message = error instanceof ApiError ? error.message : (error?.message || "Failed to create user");
@@ -488,22 +487,40 @@ export function UserManagement() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder={currentAdminDomain ? `user@${currentAdminDomain}` : "user@example.com"}
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  aria-invalid={!!emailDomainError}
-                  className={emailDomainError ? "border-destructive focus-visible:ring-destructive" : undefined}
-                />
-                {currentAdminDomain && !emailDomainError && (
-                  <p className="text-xs text-muted-foreground">
-                    Agents must use an <span className="font-medium">@{currentAdminDomain}</span> email address.
-                  </p>
-                )}
-                {emailDomainError && (
-                  <p className="text-xs text-destructive">{emailDomainError}</p>
+                {currentAdminDomain ? (
+                  <>
+                    <div className="flex">
+                      <Input
+                        id="email"
+                        type="text"
+                        inputMode="text"
+                        autoComplete="off"
+                        placeholder="john"
+                        value={newUserLocalPart}
+                        onChange={(e) => setNewUserLocalPart(e.target.value)}
+                        aria-invalid={!!localPartError}
+                        className={`rounded-r-none ${localPartError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                      />
+                      <span className="inline-flex items-center whitespace-nowrap rounded-r-md border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground">
+                        @{currentAdminDomain}
+                      </span>
+                    </div>
+                    {localPartError ? (
+                      <p className="text-xs text-destructive">{localPartError}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Just enter the agent's name — the <span className="font-medium">@{currentAdminDomain}</span> domain is added automatically.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="user@example.com"
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                  />
                 )}
               </div>
               <div className="space-y-2">
@@ -513,7 +530,7 @@ export function UserManagement() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateUser} disabled={isCreating || !!emailDomainError}>
+              <Button onClick={handleCreateUser} disabled={isCreating || !!localPartError}>
                 {isCreating ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</>) : `Create ${newUserRole === "admin" ? "Admin" : "Agent"}`}
               </Button>
             </DialogFooter>
