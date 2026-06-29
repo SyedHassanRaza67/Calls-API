@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { z } from "zod";
 import { useAuth } from "@/contexts/AuthContext";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -7,10 +8,55 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { PhoneCountryInput } from "@/components/ui/phone-country-input";
 import { useToast } from "@/hooks/use-toast";
+import { isFreeEmailProvider, getEmailDomain } from "@/lib/emailProviders";
 import { Loader2, MessageCircle, ArrowLeft, ShieldCheck } from "lucide-react";
 
 type Mode = "signin" | "signup" | "request" | "verify";
+
+// Canonical signup validation rules — kept in sync with the backend.
+const signupSchema = z.object({
+  full_name: z
+    .string()
+    .trim()
+    .min(2, "Enter your full name (at least 2 characters).")
+    .max(80, "Name must be 80 characters or fewer.")
+    .regex(
+      /^\p{L}[\p{L} .'-]{1,79}$/u,
+      "Name must start with a letter and use only letters, spaces, apostrophes, hyphens, or periods.",
+    ),
+  email: z
+    .string()
+    .trim()
+    .min(1, "Email is required.")
+    .max(254, "Email must be 254 characters or fewer.")
+    .email("Enter a valid email address.")
+    .toLowerCase()
+    .refine((value) => !isFreeEmailProvider(value), {
+      message:
+        "Use your company email address, not a public provider (gmail, yahoo, ...).",
+    }),
+  company: z
+    .string()
+    .trim()
+    .min(2, "Company name must be at least 2 characters.")
+    .max(100, "Company name must be 100 characters or fewer."),
+  phone: z
+    .string()
+    .trim()
+    .min(1, "Phone number is required.")
+    .regex(
+      /^\+[1-9]\d{6,14}$/,
+      "Enter a valid phone number in international format (E.164).",
+    ),
+  password: z
+    .string()
+    .min(8, "Use at least 8 characters.")
+    .max(72, "Password must be 72 characters or fewer."),
+});
+
+type SignupFieldErrors = Partial<Record<keyof z.infer<typeof signupSchema>, string>>;
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -30,6 +76,7 @@ export default function Auth() {
   const [signupPassword, setSignupPassword] = useState("");
   const [signupCompany, setSignupCompany] = useState("");
   const [signupPhone, setSignupPhone] = useState("");
+  const [signupErrors, setSignupErrors] = useState<SignupFieldErrors>({});
 
   // Reset flow
   const [resetEmail, setResetEmail] = useState("");
@@ -42,6 +89,12 @@ export default function Auth() {
       navigate("/admin");
     }
   }, [user, mode, navigate]);
+
+  // Display-only hint: when the email uses a real (non-free) company domain,
+  // surface the domain agents will sign up under. Does not affect the payload.
+  const emailDomain = getEmailDomain(signupEmail);
+  const companyDomainHint =
+    emailDomain && !isFreeEmailProvider(signupEmail) ? emailDomain : null;
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,13 +113,36 @@ export default function Auth() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (signupPassword.length < 8) {
-      toast({ title: "Password too short", description: "Use at least 8 characters.", variant: "destructive" });
+
+    const result = signupSchema.safeParse({
+      full_name: signupName,
+      email: signupEmail,
+      company: signupCompany,
+      phone: signupPhone,
+      password: signupPassword,
+    });
+
+    if (!result.success) {
+      const fieldErrors: SignupFieldErrors = {};
+      for (const issue of result.error.issues) {
+        const key = issue.path[0] as keyof SignupFieldErrors;
+        if (key && !fieldErrors[key]) fieldErrors[key] = issue.message;
+      }
+      setSignupErrors(fieldErrors);
+      toast({
+        title: "Please fix the highlighted fields",
+        description: "Some details need your attention before we can continue.",
+        variant: "destructive",
+      });
       return;
     }
+
+    setSignupErrors({});
+    const { full_name, email: cleanEmail, company, phone, password } = result.data;
+
     setIsLoading(true);
     try {
-      await signUp(signupEmail, signupPassword, signupName, signupCompany, signupPhone);
+      await signUp(cleanEmail, password, full_name, company, phone);
       // No token is issued — the account is pending Super Admin approval.
       // Do NOT navigate; switch back to sign-in and surface a clear success state.
       toast({
@@ -211,7 +287,7 @@ export default function Auth() {
             )}
 
             {mode === "signup" && (
-              <form onSubmit={handleSignUp} className="space-y-4">
+              <form onSubmit={handleSignUp} noValidate className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="signup-name">Full name</Label>
                   <Input
@@ -220,19 +296,27 @@ export default function Auth() {
                     placeholder="Jane Doe"
                     value={signupName}
                     onChange={(e) => setSignupName(e.target.value)}
+                    aria-invalid={!!signupErrors.full_name}
                     required
                   />
+                  {signupErrors.full_name && (
+                    <p className="text-sm text-destructive mt-1">{signupErrors.full_name}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-email">Email</Label>
                   <Input
                     id="signup-email"
                     type="email"
-                    placeholder="you@example.com"
+                    placeholder="you@company.com"
                     value={signupEmail}
                     onChange={(e) => setSignupEmail(e.target.value)}
+                    aria-invalid={!!signupErrors.email}
                     required
                   />
+                  {signupErrors.email && (
+                    <p className="text-sm text-destructive mt-1">{signupErrors.email}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-company">Company name</Label>
@@ -242,19 +326,28 @@ export default function Auth() {
                     placeholder="Acme Inc."
                     value={signupCompany}
                     onChange={(e) => setSignupCompany(e.target.value)}
+                    aria-invalid={!!signupErrors.company}
                     required
                   />
+                  {companyDomainHint && (
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Your agents will sign up with @{companyDomainHint} addresses.
+                    </p>
+                  )}
+                  {signupErrors.company && (
+                    <p className="text-sm text-destructive mt-1">{signupErrors.company}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-phone">Phone</Label>
-                  <Input
+                  <PhoneCountryInput
                     id="signup-phone"
-                    type="tel"
-                    placeholder="+1 555 123 4567"
                     value={signupPhone}
-                    onChange={(e) => setSignupPhone(e.target.value)}
-                    required
+                    onChange={setSignupPhone}
                   />
+                  {signupErrors.phone && (
+                    <p className="text-sm text-destructive mt-1">{signupErrors.phone}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-password">Password</Label>
@@ -264,8 +357,12 @@ export default function Auth() {
                     placeholder="At least 8 characters"
                     value={signupPassword}
                     onChange={(e) => setSignupPassword(e.target.value)}
+                    aria-invalid={!!signupErrors.password}
                     required
                   />
+                  {signupErrors.password && (
+                    <p className="text-sm text-destructive mt-1">{signupErrors.password}</p>
+                  )}
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

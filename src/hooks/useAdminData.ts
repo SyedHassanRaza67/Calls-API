@@ -24,6 +24,9 @@ export interface Profile {
   paused_reason?: string | null;
   // /api/profiles returns the role(s) for each row; used as the source of truth.
   roles?: string[];
+  // Company email domain (e.g. "acme.com") enforced for agents this admin creates.
+  // Null for super-admins / legacy accounts. Surfaced on /api/users rows.
+  company_domain?: string | null;
 }
 
 // Normalize a roles value into a string[]. Accepts a real array (["admin"]) OR a
@@ -51,6 +54,7 @@ function pickRole(roles: unknown, fallback?: string): string {
 export interface UserRole {
   user_id: string;
   role: string;
+  company_domain?: string | null;
 }
 
 export interface ApiConfiguration {
@@ -114,8 +118,8 @@ export function useUserRoles() {
     queryFn: async () => {
       // /api/users lists users+roles+profiles (scoped). The API returns `roles`
       // as an array; reduce to a single { user_id, role } using privilege order.
-      const data = await api.get<Array<{ user_id: string; role?: string; roles?: unknown }>>("/api/users");
-      return (data || []).map((u) => ({ user_id: u.user_id, role: pickRole(u.roles, u.role) })) as UserRole[];
+      const data = await api.get<Array<{ user_id: string; role?: string; roles?: unknown; company_domain?: string | null }>>("/api/users");
+      return (data || []).map((u) => ({ user_id: u.user_id, role: pickRole(u.roles, u.role), company_domain: u.company_domain ?? null })) as UserRole[];
     },
     staleTime: 0,
     refetchOnMount: "always",
@@ -205,6 +209,8 @@ export function useUsersWithRoles() {
       ...profile,
       // Prefer the role embedded in the profile row; fall back to /api/users.
       role: pickRole(profile.roles, userRole?.role),
+      // company_domain is surfaced by /api/users; fall back to the profile row.
+      company_domain: profile.company_domain ?? userRole?.company_domain ?? null,
       manager_name: managerProfile?.full_name || managerProfile?.email || null,
     };
   }) || [];

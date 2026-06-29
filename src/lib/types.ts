@@ -12,6 +12,9 @@ export interface Profile {
   avatar_url: string | null;
   created_at: string;
   updated_at: string;
+  // Company email domain enforced for agents created by this admin (null for
+  // super-admins / legacy accounts). Surfaced by the API on user rows.
+  company_domain?: string | null;
 }
 
 export interface UserRole {

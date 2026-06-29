@@ -35,6 +35,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Search, UserPlus, Loader2, Shield, User, Users, Trash2, ChevronDown, ChevronRight, KeyRound, Eye, EyeOff, Copy, Check, Pause, Play, Clock, Building2, Phone, Mail, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { getEmailDomain } from "@/lib/emailProviders";
 import { toast } from "sonner";
 import { useUsersWithRoles, useInvalidateAdminData } from "@/hooks/useAdminData";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -158,6 +159,27 @@ export function UserManagement() {
     return { groups: groups.filter((g) => g.visible), orphanAgents: orphanAgents.filter(matches) };
   }, [users, searchTerm, isSuperAdmin, currentUser]);
 
+  // The current admin's enforced company email domain (e.g. "acme.com"), read
+  // from their own row in the fetched users list. Null for super-admins / legacy
+  // accounts — in that case we don't enforce client-side and let the server decide.
+  const currentAdminDomain = useMemo(() => {
+    if (!currentUser) return null;
+    const me = users.find((u) => u.user_id === currentUser.id);
+    const domain = me?.company_domain?.trim().toLowerCase();
+    return domain || null;
+  }, [users, currentUser]);
+
+  // Soft client-side validation: surface a mismatch between the entered agent
+  // email's domain and the admin's company domain. The server is authoritative.
+  const emailDomainError = useMemo(() => {
+    if (!currentAdminDomain || !newUserEmail) return null;
+    const domain = getEmailDomain(newUserEmail);
+    if (domain && domain !== currentAdminDomain) {
+      return `Agents must use an @${currentAdminDomain} email address.`;
+    }
+    return null;
+  }, [currentAdminDomain, newUserEmail]);
+
   const adminCount = grouped.groups.length;
   const totalAgentCount = grouped.groups.reduce((acc, g) => acc + g.agents.length, 0) + grouped.orphanAgents.length;
 
@@ -174,6 +196,15 @@ export function UserManagement() {
     if (!newUserEmail || !newUserPassword) {
       toast.error("Email and password are required");
       return;
+    }
+    // Soft client-side guard: if this admin has a company domain, require the
+    // agent email to match it. The server enforces the same rule as a backstop.
+    if (currentAdminDomain) {
+      const domain = getEmailDomain(newUserEmail);
+      if (!domain || domain !== currentAdminDomain) {
+        toast.error(`Agents must use an @${currentAdminDomain} email address.`);
+        return;
+      }
     }
     setIsCreating(true);
     try {
@@ -457,7 +488,23 @@ export function UserManagement() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="user@example.com" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder={currentAdminDomain ? `user@${currentAdminDomain}` : "user@example.com"}
+                  value={newUserEmail}
+                  onChange={(e) => setNewUserEmail(e.target.value)}
+                  aria-invalid={!!emailDomainError}
+                  className={emailDomainError ? "border-destructive focus-visible:ring-destructive" : undefined}
+                />
+                {currentAdminDomain && !emailDomainError && (
+                  <p className="text-xs text-muted-foreground">
+                    Agents must use an <span className="font-medium">@{currentAdminDomain}</span> email address.
+                  </p>
+                )}
+                {emailDomainError && (
+                  <p className="text-xs text-destructive">{emailDomainError}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
@@ -466,7 +513,7 @@ export function UserManagement() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreateUser} disabled={isCreating}>
+              <Button onClick={handleCreateUser} disabled={isCreating || !!emailDomainError}>
                 {isCreating ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</>) : `Create ${newUserRole === "admin" ? "Admin" : "Agent"}`}
               </Button>
             </DialogFooter>

@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/auth";
 import { requireAdmin, requireSuperAdmin } from "../middleware/requireRole";
 import { hashPassword } from "../lib/password";
 import { isSuperAdmin, isAdmin } from "../lib/authz";
+import { getEmailDomain, isFreeEmailProvider } from "../lib/emailProviders";
 import { AppRole, HttpError } from "../types";
 
 const router = Router();
@@ -24,7 +25,7 @@ router.get(
     if (superAdmin) {
       ({ rows } = await query(
         `SELECT u.id AS user_id, u.email, u.created_at,
-                p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
+                p.full_name, p.phone, p.company, p.company_domain, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
                 COALESCE((SELECT array_agg(role::text) FROM user_roles ur WHERE ur.user_id = u.id), '{}') AS roles
            FROM app_users u
            LEFT JOIN profiles p ON p.user_id = u.id
@@ -35,7 +36,7 @@ router.get(
       // required so the UI can render the admin group and nest agents under it.
       ({ rows } = await query(
         `SELECT u.id AS user_id, u.email, u.created_at,
-                p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
+                p.full_name, p.phone, p.company, p.company_domain, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
                 COALESCE((SELECT array_agg(role::text) FROM user_roles ur WHERE ur.user_id = u.id), '{}') AS roles
            FROM app_users u
            JOIN profiles p ON p.user_id = u.id
@@ -46,7 +47,7 @@ router.get(
     } else {
       ({ rows } = await query(
         `SELECT u.id AS user_id, u.email, u.created_at,
-                p.full_name, p.phone, p.company, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
+                p.full_name, p.phone, p.company, p.company_domain, p.managed_by, p.is_paused, p.paused_reason, p.approval_status,
                 COALESCE((SELECT array_agg(role::text) FROM user_roles ur WHERE ur.user_id = u.id), '{}') AS roles
            FROM app_users u
            LEFT JOIN profiles p ON p.user_id = u.id
@@ -139,6 +140,33 @@ router.post(
 
     // Agents are managed by their creator so they nest under them in the UI.
     const managedBy = assignedRole === "agent" ? me : null;
+
+    // Enforce the company-domain rule and derive the new profile's company +
+    // company_domain based on the assigned role.
+    let newCompany: string | null = null;
+    let newCompanyDomain: string | null = null;
+    if (assignedRole === "agent") {
+      const creator = await query<{ company: string | null; company_domain: string | null }>(
+        "SELECT company, company_domain FROM profiles WHERE user_id = $1",
+        [me]
+      );
+      const row = creator.rows[0];
+      const creatorDomain = row?.company_domain ?? null;
+      if (creatorDomain) {
+        if (getEmailDomain(email) !== String(creatorDomain).toLowerCase()) {
+          throw new HttpError(400, `Agent email must use your company domain (@${creatorDomain}).`);
+        }
+      }
+      newCompanyDomain = creatorDomain; // may be null (dormant for free-provider admins)
+      newCompany = row?.company ?? null; // agents inherit their admin's company name
+    } else if (assignedRole === "admin") {
+      if (isFreeEmailProvider(email)) {
+        throw new HttpError(400, "Admin email must be a company email address, not a public provider.");
+      }
+      newCompanyDomain = getEmailDomain(email);
+      newCompany = null;
+    }
+
     const passwordHash = await hashPassword(password);
 
     const newUserId = await withTransaction(async (client) => {
@@ -148,8 +176,8 @@ router.post(
       );
       const id = u.rows[0].id;
       await client.query(
-        "INSERT INTO profiles (user_id, email, full_name, managed_by) VALUES ($1, $2, $3, $4)",
-        [id, email, fullName, managedBy]
+        "INSERT INTO profiles (user_id, email, full_name, managed_by, company, company_domain) VALUES ($1, $2, $3, $4, $5, $6)",
+        [id, email, fullName, managedBy, newCompany, newCompanyDomain]
       );
       await client.query("INSERT INTO user_roles (user_id, role) VALUES ($1, $2)", [id, assignedRole]);
       return id;

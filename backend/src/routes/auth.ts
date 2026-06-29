@@ -13,15 +13,37 @@ import {
   globalPauseReason,
 } from "../lib/authz";
 import { HttpError } from "../types";
+import { isFreeEmailProvider, getEmailDomain } from "../lib/emailProviders";
 
 const router = Router();
 
 const signupSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  full_name: z.string().optional(),
-  company: z.string().optional(),
-  phone: z.string().optional(),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email()
+    .max(254)
+    .refine((e) => !isFreeEmailProvider(e), "Use your company email address, not a public provider."),
+  password: z.string().min(8, "Password must be at least 8 characters").max(72),
+  full_name: z
+    .string()
+    .trim()
+    .min(2, "Full name must be at least 2 characters")
+    .max(80, "Full name must be at most 80 characters")
+    .regex(
+      /^\p{L}[\p{L} .'-]{1,79}$/u,
+      "Enter a valid full name (letters, spaces, apostrophes, hyphens, periods)."
+    ),
+  company: z
+    .string()
+    .trim()
+    .min(2, "Company must be at least 2 characters")
+    .max(100, "Company must be at most 100 characters"),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+[1-9]\d{6,14}$/, "Enter a valid phone number in E.164 format (e.g. +14155552671)."),
 });
 
 const signinSchema = z.object({
@@ -34,8 +56,7 @@ const signinSchema = z.object({
 router.post(
   "/signup",
   asyncHandler(async (req, res) => {
-    const { email, password, full_name, company, phone } = signupSchema.parse(req.body);
-    const normalizedEmail = email.toLowerCase().trim();
+    const { email: normalizedEmail, password, full_name, company, phone } = signupSchema.parse(req.body);
 
     const existing = await query("SELECT 1 FROM app_users WHERE lower(email) = $1", [normalizedEmail]);
     if (existing.rows.length > 0) {
@@ -52,9 +73,9 @@ router.post(
       const id = userRes.rows[0].id;
 
       await client.query(
-        `INSERT INTO profiles (user_id, email, full_name, company, phone, approval_status)
-         VALUES ($1, $2, $3, $4, $5, 'pending')`,
-        [id, normalizedEmail, full_name || "", company || null, phone || null]
+        `INSERT INTO profiles (user_id, email, full_name, company, phone, approval_status, company_domain)
+         VALUES ($1, $2, $3, $4, $5, 'pending', $6)`,
+        [id, normalizedEmail, full_name || "", company || null, phone || null, getEmailDomain(normalizedEmail)]
       );
       await client.query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'admin')", [id]);
       return id;
