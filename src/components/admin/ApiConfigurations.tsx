@@ -823,7 +823,100 @@ export function ApiConfigurations() {
               </DialogHeader>
 
               {/* Top request bar — always visible */}
-              <div className="flex-shrink-0 space-y-2">
+              <div className="flex-shrink-0 space-y-3">
+                {/* Campaign Name (3-part) */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Campaign Name *</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Select value={namePrefix} onValueChange={(val) => {
+                      setNamePrefix(val);
+                      const effective = val === "__custom__" ? namePrefixCustom : val;
+                      setFormData({ ...formData, name: composeCampaignName(effective, nameCategory, nameCategoryCustom, nameSubname) });
+                    }}>
+                      <SelectTrigger><SelectValue placeholder="D#" /></SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        <SelectItem value="__custom__">+ Custom…</SelectItem>
+                        {existingPrefixes.map(d => (
+                          <SelectItem key={d} value={d}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={nameCategory} onValueChange={(val) => {
+                      setNameCategory(val);
+                      const customVal = val === "__custom__" ? nameCategoryCustom : "";
+                      const effectivePrefix = namePrefix === "__custom__" ? namePrefixCustom : namePrefix;
+                      setFormData({ ...formData, name: composeCampaignName(effectivePrefix, val, customVal, nameSubname) });
+                    }}>
+                      <SelectTrigger><SelectValue placeholder="Campaign Name" /></SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        <SelectItem value="__custom__">+ Custom…</SelectItem>
+                        {existingCategories.map(c => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="Sub-name"
+                      value={nameSubname}
+                      onChange={(e) => {
+                        setNameSubname(e.target.value);
+                        const effectivePrefix = namePrefix === "__custom__" ? namePrefixCustom : namePrefix;
+                        setFormData({ ...formData, name: composeCampaignName(effectivePrefix, nameCategory, nameCategoryCustom, e.target.value) });
+                      }}
+                    />
+                  </div>
+                  {namePrefix === "__custom__" && (
+                    <Input
+                      placeholder="Enter custom prefix (e.g. D247)"
+                      value={namePrefixCustom}
+                      onChange={(e) => {
+                        setNamePrefixCustom(e.target.value);
+                        setFormData({ ...formData, name: composeCampaignName(e.target.value, nameCategory, nameCategoryCustom, nameSubname) });
+                      }}
+                    />
+                  )}
+                  {nameCategory === "__custom__" && (
+                    <Input
+                      placeholder="Enter custom campaign name"
+                      value={nameCategoryCustom}
+                      onChange={(e) => {
+                        setNameCategoryCustom(e.target.value);
+                        const effectivePrefix = namePrefix === "__custom__" ? namePrefixCustom : namePrefix;
+                        setFormData({ ...formData, name: composeCampaignName(effectivePrefix, nameCategory, e.target.value, nameSubname) });
+                      }}
+                    />
+                  )}
+                  <p className="text-[10px] text-muted-foreground">
+                    Preview: <span className="font-medium text-foreground">{formData.name || "—"}</span>
+                  </p>
+                </div>
+
+                {/* Request Mode — segmented control */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Request Mode *</Label>
+                  <div className="inline-flex w-full rounded-lg border border-border bg-muted/30 p-0.5">
+                    {([
+                      { v: "rtb", label: "RTB", hint: "Legacy single-step with RTB key" },
+                      { v: "ping-post", label: "Ping / Post", hint: "Check availability, then submit" },
+                      { v: "ping", label: "Ping Only", hint: "One call, returns result directly" },
+                    ] as const).map((opt) => (
+                      <button
+                        key={opt.v}
+                        type="button"
+                        title={opt.hint}
+                        onClick={() => setFormData({ ...formData, api_mode: opt.v })}
+                        className={`flex-1 h-8 text-xs font-medium rounded-md transition-colors ${
+                          formData.api_mode === opt.v
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {formData.api_mode === "ping-post" && (
                   <div className="flex items-center gap-2">
 
@@ -966,151 +1059,10 @@ export function ApiConfigurations() {
 
               </div>
 
-              {/* Two-column body */}
-              <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 flex-1 min-h-0 mt-2">
-                {/* LEFT COLUMN — meta */}
-                <div className="flex flex-col gap-3 overflow-y-auto pr-1">
-                {/* Buyer (independent grouping) */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Buyer *</Label>
-                  <Select value={buyerSelect} onValueChange={(val) => {
-                    setBuyerSelect(val);
-                    const next = val === "__custom__" ? buyerCustom : val;
-                    setFormData({ ...formData, buyer: next });
-                  }}>
-                    <SelectTrigger><SelectValue placeholder="Select buyer" /></SelectTrigger>
-                    <SelectContent className="max-h-60">
-                      <SelectItem value="__custom__">+ Custom buyer…</SelectItem>
-                      {existingBuyers.map(b => (
-                        <SelectItem key={b} value={b}>{b}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {buyerSelect === "__custom__" && (
-                    <Input
-                      placeholder="Enter custom buyer name"
-                      value={buyerCustom}
-                      onChange={(e) => {
-                        setBuyerCustom(e.target.value);
-                        setFormData({ ...formData, buyer: e.target.value });
-                      }}
-                    />
-                  )}
-                  <p className="text-[10px] text-muted-foreground">
-                    Groups this campaign under <span className="font-medium text-foreground">{formData.buyer || "Unassigned"}</span> in the Agent Workspace.
-                  </p>
-                </div>
-
-                {/* Campaign Name (3-part) */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Campaign Name *</Label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <Select value={namePrefix} onValueChange={(val) => {
-                      setNamePrefix(val);
-                      const effective = val === "__custom__" ? namePrefixCustom : val;
-                      setFormData({ ...formData, name: composeCampaignName(effective, nameCategory, nameCategoryCustom, nameSubname) });
-                    }}>
-                      <SelectTrigger><SelectValue placeholder="D#" /></SelectTrigger>
-                      <SelectContent className="max-h-60">
-                        <SelectItem value="__custom__">+ Custom…</SelectItem>
-                        {existingPrefixes.map(d => (
-                          <SelectItem key={d} value={d}>{d}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select value={nameCategory} onValueChange={(val) => {
-                      setNameCategory(val);
-                      const customVal = val === "__custom__" ? nameCategoryCustom : "";
-                      const effectivePrefix = namePrefix === "__custom__" ? namePrefixCustom : namePrefix;
-                      setFormData({ ...formData, name: composeCampaignName(effectivePrefix, val, customVal, nameSubname) });
-                    }}>
-                      <SelectTrigger><SelectValue placeholder="Campaign Name" /></SelectTrigger>
-                      <SelectContent className="max-h-60">
-                        <SelectItem value="__custom__">+ Custom…</SelectItem>
-                        {existingCategories.map(c => (
-                          <SelectItem key={c} value={c}>{c}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      placeholder="Sub-name"
-                      value={nameSubname}
-                      onChange={(e) => {
-                        setNameSubname(e.target.value);
-                        const effectivePrefix = namePrefix === "__custom__" ? namePrefixCustom : namePrefix;
-                        setFormData({ ...formData, name: composeCampaignName(effectivePrefix, nameCategory, nameCategoryCustom, e.target.value) });
-                      }}
-                    />
-                  </div>
-                  {namePrefix === "__custom__" && (
-                    <Input
-                      placeholder="Enter custom prefix (e.g. D247)"
-                      value={namePrefixCustom}
-                      onChange={(e) => {
-                        setNamePrefixCustom(e.target.value);
-                        setFormData({ ...formData, name: composeCampaignName(e.target.value, nameCategory, nameCategoryCustom, nameSubname) });
-                      }}
-                    />
-                  )}
-                  {nameCategory === "__custom__" && (
-                    <Input
-                      placeholder="Enter custom campaign name"
-                      value={nameCategoryCustom}
-                      onChange={(e) => {
-                        setNameCategoryCustom(e.target.value);
-                        const effectivePrefix = namePrefix === "__custom__" ? namePrefixCustom : namePrefix;
-                        setFormData({ ...formData, name: composeCampaignName(effectivePrefix, nameCategory, e.target.value, nameSubname) });
-                      }}
-                    />
-                  )}
-                  <p className="text-[10px] text-muted-foreground">
-                    Preview: <span className="font-medium text-foreground">{formData.name || "—"}</span>
-                  </p>
-                </div>
-
-                {/* Request Mode — segmented control */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Request Mode *</Label>
-                  <div className="inline-flex w-full rounded-lg border border-border bg-muted/30 p-0.5">
-                    {([
-                      { v: "rtb", label: "RTB", hint: "Legacy single-step with RTB key" },
-                      { v: "ping-post", label: "Ping / Post", hint: "Check availability, then submit" },
-                      { v: "ping", label: "Ping Only", hint: "One call, returns result directly" },
-                    ] as const).map((opt) => (
-                      <button
-                        key={opt.v}
-                        type="button"
-                        title={opt.hint}
-                        onClick={() => setFormData({ ...formData, api_mode: opt.v })}
-                        className={`flex-1 h-8 text-xs font-medium rounded-md transition-colors ${
-                          formData.api_mode === opt.v
-                            ? "bg-background text-foreground shadow-sm"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Forwarding Number */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="trackdrive_number" className="flex items-center gap-1.5 text-xs">
-                    <Phone className="h-3 w-3" />
-                    Forwarding Number
-                  </Label>
-                  <Input
-                    id="trackdrive_number"
-                    placeholder="e.g., +18449061178"
-                    value={formData.trackdrive_number}
-                    onChange={(e) => setFormData({ ...formData, trackdrive_number: e.target.value })}
-                  />
-                  <p className="text-[10px] text-muted-foreground">
-                    If the API doesn't return a phone number, this will be shown to agents
-                  </p>
-                </div>
-
+              {/* Body — single scrolling column */}
+              <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto mt-2 pr-1">
+                {/* Meta fields (order 2 — below the request panel) */}
+                <div className="flex flex-col gap-3 order-2">
                 {/* Notes */}
                 <div className="space-y-1.5">
                   <Label htmlFor="notes" className="flex items-center gap-1.5 text-xs">
@@ -1240,8 +1192,8 @@ export function ApiConfigurations() {
                 </div>
                 </div>
 
-                {/* RIGHT COLUMN — Postman-style tabs */}
-                <div className="flex flex-col min-h-0 border border-border rounded-lg overflow-hidden">
+                {/* Request panel — Postman-style tabs (order 1) */}
+                <div className="flex flex-col flex-shrink-0 order-1 h-[360px] border border-border rounded-lg overflow-hidden">
                   <Tabs defaultValue="params" className="flex-1 flex flex-col min-h-0">
                     <TabsList className="grid w-full grid-cols-4 rounded-none border-b border-border bg-muted/40 h-9">
                       <TabsTrigger value="params" className="text-xs">Params</TabsTrigger>
