@@ -1,62 +1,175 @@
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Activity, TrendingUp, CheckCircle } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Users, Activity, TrendingUp, CheckCircle, CalendarRange } from "lucide-react";
 import { useDashboardStats, useProfiles, useLeads, useApiConfigurations } from "@/hooks/useAdminData";
 
+/* -------------------------------------------------------------------------- */
+/*  Date helpers — all calendar math is done in US Eastern (America/New_York)  */
+/* -------------------------------------------------------------------------- */
+
+const ET_TIME_ZONE = "America/New_York";
+
+// en-CA formats dates as YYYY-MM-DD, which is exactly the calendar-date string
+// we want for bucketing/comparison. Reused across calls to avoid re-allocating.
+const ET_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: ET_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+// Returns the calendar date (YYYY-MM-DD) for the given Date as seen in ET.
+function etDateString(date: Date): string {
+  return ET_DATE_FORMAT.format(date);
+}
+
+// Pure calendar arithmetic on a YYYY-MM-DD string (timezone-independent).
+// Anchors at UTC midnight so adding/subtracting days never crosses a DST seam.
+function addDaysToDateString(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+type RangeKey = "today" | "yesterday" | "last7" | "last30" | "month" | "all";
+
+const RANGE_OPTIONS: { key: RangeKey; label: string; subtitle: string }[] = [
+  { key: "today", label: "Today", subtitle: "Submissions today" },
+  { key: "yesterday", label: "Yesterday", subtitle: "Submissions yesterday" },
+  { key: "last7", label: "Last 7 Days", subtitle: "Submissions in last 7 days" },
+  { key: "last30", label: "Last 30 Days", subtitle: "Submissions in last 30 days" },
+  { key: "month", label: "This Month", subtitle: "Submissions this month" },
+  { key: "all", label: "All Time", subtitle: "Submissions all time" },
+];
+
+// Inclusive ET calendar-date bounds for the selected range. `start === null`
+// (used by "All Time") means no lower/upper bound.
+function getEtRangeBounds(key: RangeKey): { start: string | null; end: string | null } {
+  const today = etDateString(new Date());
+  switch (key) {
+    case "today":
+      return { start: today, end: today };
+    case "yesterday": {
+      const y = addDaysToDateString(today, -1);
+      return { start: y, end: y };
+    }
+    case "last7":
+      return { start: addDaysToDateString(today, -6), end: today };
+    case "last30":
+      return { start: addDaysToDateString(today, -29), end: today };
+    case "month":
+      return { start: `${today.slice(0, 8)}01`, end: today };
+    case "all":
+    default:
+      return { start: null, end: null };
+  }
+}
+
+// True when a lead's created_at (ISO/UTC) falls within the inclusive ET bounds.
+function isWithinEtRange(createdAt: string, start: string | null, end: string | null): boolean {
+  if (!start || !end) return true;
+  const d = etDateString(new Date(createdAt));
+  return d >= start && d <= end;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Role helpers — decide which profiles are agent accounts                     */
+/* -------------------------------------------------------------------------- */
+
+// Normalize a roles value into a string[]. Accepts a real array (["admin"]) OR a
+// Postgres array literal string ("{admin,agent}").
+function toRolesArray(roles: unknown): string[] {
+  if (Array.isArray(roles)) return roles.map(String);
+  if (typeof roles === "string") {
+    return roles
+      .replace(/^\{|\}$/g, "")
+      .split(",")
+      .map((s) => s.trim().replace(/^"|"$/g, ""))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+// An "agent" is any account that is not an admin / super_admin.
+function isAgentProfile(roles: unknown): boolean {
+  const arr = toRolesArray(roles);
+  if (arr.length === 0) return false;
+  return !arr.includes("admin") && !arr.includes("super_admin");
+}
+
+/* -------------------------------------------------------------------------- */
+/*  UI building blocks                                                          */
+/* -------------------------------------------------------------------------- */
+
 // Memoized stat card
-const StatCard = memo(({ 
-  title, 
-  value, 
-  change, 
-  icon: Icon, 
-  color, 
-  isLoading 
-}: { 
-  title: string; 
-  value: string; 
-  change: string; 
-  icon: any; 
-  color: string; 
+const StatCard = memo(({
+  title,
+  value,
+  change,
+  icon: Icon,
+  iconClass,
+  accentClass,
+  isLoading,
+}: {
+  title: string;
+  value: string;
+  change: string;
+  icon: any;
+  iconClass: string;
+  accentClass: string;
   isLoading: boolean;
 }) => (
-  <Card className="bg-card/50 border-border">
-    <CardHeader className="flex flex-row items-center justify-between pb-2">
-      <CardTitle className="text-sm font-medium text-muted-foreground">
-        {title}
-      </CardTitle>
-      <Icon className={`h-4 w-4 ${color}`} />
-    </CardHeader>
-    <CardContent>
-      {isLoading ? (
-        <>
-          <Skeleton className="h-8 w-20 mb-1" />
-          <Skeleton className="h-4 w-24" />
-        </>
-      ) : (
-        <>
-          <div className="text-2xl font-bold">{value}</div>
-          <p className="text-xs text-muted-foreground">{change}</p>
-        </>
-      )}
+  <Card className="bg-card/50 border-border transition-colors hover:border-border/80">
+    <CardContent className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+          {isLoading ? (
+            <>
+              <Skeleton className="h-8 w-20" />
+              <Skeleton className="h-4 w-24" />
+            </>
+          ) : (
+            <>
+              <div className="text-2xl font-bold tracking-tight">{value}</div>
+              <p className="text-xs text-muted-foreground">{change}</p>
+            </>
+          )}
+        </div>
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${accentClass}`}>
+          <Icon className={`h-5 w-5 ${iconClass}`} />
+        </div>
+      </div>
     </CardContent>
   </Card>
 ));
 StatCard.displayName = "StatCard";
 
 // Memoized campaign item
-const CampaignItem = memo(({ 
-  service, 
-  successCount, 
-  totalCount 
-}: { 
-  service: string; 
-  successCount: number; 
+const CampaignItem = memo(({
+  service,
+  successCount,
+  totalCount,
+}: {
+  service: string;
+  successCount: number;
   totalCount: number;
 }) => {
   const successRate = totalCount > 0 ? (successCount / totalCount) * 100 : 0;
   const isHealthy = successRate >= 50;
-  
+
   return (
     <div className="flex items-center justify-between py-2 border-b border-border last:border-0">
       <div className="flex items-center gap-3">
@@ -77,11 +190,11 @@ const CampaignItem = memo(({
 CampaignItem.displayName = "CampaignItem";
 
 // Memoized agent item
-const AgentItem = memo(({ 
-  agent, 
-  formatTimeAgo 
-}: { 
-  agent: { full_name: string | null; email: string | null; created_at: string }; 
+const AgentItem = memo(({
+  agent,
+  formatTimeAgo,
+}: {
+  agent: { full_name: string | null; email: string | null; created_at: string };
   formatTimeAgo: (date: string) => string;
 }) => (
   <div className="flex items-center justify-between py-2 border-b border-border last:border-0">
@@ -101,24 +214,41 @@ export function AdminDashboard() {
   const { data: leads, isLoading: leadsLoading } = useLeads();
   const { data: apiConfigs } = useApiConfigurations();
 
+  const [rangeKey, setRangeKey] = useState<RangeKey>("today");
+  const rangeOption = useMemo(
+    () => RANGE_OPTIONS.find((o) => o.key === rangeKey) ?? RANGE_OPTIONS[0],
+    [rangeKey]
+  );
+
   const isLoading = profilesLoading || leadsLoading;
 
-  // Memoized stats calculation
-  const stats = useMemo(() => {
+  // All-time metrics (unaffected by the date filter).
+  const allTimeStats = useMemo(() => {
     const totalAgents = profiles?.length || 0;
     const totalLeads = leads?.length || 0;
-    const today = new Date().toISOString().split('T')[0];
-    const leadsToday = leads?.filter(l => l.created_at.startsWith(today)).length || 0;
-    const successfulLeads = leads?.filter(l => l.status === "success").length || 0;
-    const successRate = totalLeads > 0 ? (successfulLeads / totalLeads) * 100 : 0;
-
-    return { totalAgents, totalLeads, leadsToday, successRate };
+    return { totalAgents, totalLeads };
   }, [profiles, leads]);
 
-  const recentAgents = useMemo(() => 
-    profiles?.slice(0, 5) || [], 
-    [profiles]
-  );
+  // Range-driven metrics (ET timezone).
+  const rangeStats = useMemo(() => {
+    const { start, end } = getEtRangeBounds(rangeKey);
+    const inRange = leads?.filter((l) => isWithinEtRange(l.created_at, start, end)) || [];
+    const total = inRange.length;
+    const success = inRange.filter((l) => l.status === "success").length;
+    const successRate = total > 0 ? (success / total) * 100 : 0;
+    return { total, success, successRate };
+  }, [leads, rangeKey]);
+
+  // Recently added agents: agent accounts only, most-recent first. Falls back to
+  // all profiles (most-recent first) if no role data distinguishes agents.
+  const recentAgents = useMemo(() => {
+    const all = profiles || [];
+    const agents = all.filter((p) => isAgentProfile(p.roles));
+    const source = agents.length > 0 ? agents : all;
+    return [...source]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 5);
+  }, [profiles]);
 
   const serviceHealth = useMemo(() => {
     const campaignMap = new Map<string, { success: number; total: number }>();
@@ -131,7 +261,7 @@ export function AdminDashboard() {
     });
 
     const campaignNames = new Map(apiConfigs?.map(c => [c.id, c.name]) || []);
-    
+
     return Array.from(campaignMap.entries())
       .map(([id, data]) => ({
         service: campaignNames.get(id) || "Unknown Campaign",
@@ -155,43 +285,64 @@ export function AdminDashboard() {
   }, []);
 
   const statCards = useMemo(() => [
-    { 
-      title: "Total Agents", 
-      value: stats.totalAgents.toLocaleString(), 
-      change: "Registered users", 
+    {
+      title: "Total Agents",
+      value: allTimeStats.totalAgents.toLocaleString(),
+      change: "Registered users",
       icon: Users,
-      color: "text-primary" 
+      iconClass: "text-sky-500",
+      accentClass: "bg-sky-500/10",
     },
-    { 
-      title: "Leads Today", 
-      value: stats.leadsToday.toLocaleString(), 
-      change: "Submissions today", 
+    {
+      title: "Leads",
+      value: rangeStats.total.toLocaleString(),
+      change: rangeOption.subtitle,
       icon: Activity,
-      color: "text-primary" 
+      iconClass: "text-violet-500",
+      accentClass: "bg-violet-500/10",
     },
-    { 
-      title: "Success Rate", 
-      value: `${stats.successRate.toFixed(1)}%`, 
-      change: `${stats.totalLeads} total leads`, 
+    {
+      title: "Success Rate",
+      value: `${rangeStats.successRate.toFixed(1)}%`,
+      change: `${rangeStats.success.toLocaleString()}/${rangeStats.total.toLocaleString()} successful (${rangeOption.label.toLowerCase()})`,
       icon: CheckCircle,
-      color: "text-emerald-500" 
+      iconClass: "text-emerald-500",
+      accentClass: "bg-emerald-500/10",
     },
-    { 
-      title: "Total Leads", 
-      value: stats.totalLeads.toLocaleString(), 
-      change: "All time", 
+    {
+      title: "Total Leads",
+      value: allTimeStats.totalLeads.toLocaleString(),
+      change: "All time",
       icon: TrendingUp,
-      color: "text-primary" 
+      iconClass: "text-amber-500",
+      accentClass: "bg-amber-500/10",
     },
-  ], [stats]);
+  ], [allTimeStats, rangeStats, rangeOption]);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-        <p className="text-muted-foreground">
-          Platform overview and management tools.
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+          <p className="text-muted-foreground">
+            Platform overview and management tools.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <CalendarRange className="h-4 w-4 text-muted-foreground" />
+          <Select value={rangeKey} onValueChange={(v) => setRangeKey(v as RangeKey)}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Select range" />
+            </SelectTrigger>
+            <SelectContent>
+              {RANGE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.key} value={opt.key}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -202,7 +353,8 @@ export function AdminDashboard() {
             value={stat.value}
             change={stat.change}
             icon={stat.icon}
-            color={stat.color}
+            iconClass={stat.iconClass}
+            accentClass={stat.accentClass}
             isLoading={isLoading}
           />
         ))}
@@ -239,7 +391,7 @@ export function AdminDashboard() {
 
         <Card className="bg-card/50 border-border">
           <CardHeader>
-            <CardTitle>Recent Agent Signups</CardTitle>
+            <CardTitle>Recently Added Agents</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (

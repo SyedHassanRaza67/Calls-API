@@ -127,6 +127,35 @@ router.post(
   })
 );
 
+const changePasswordSchema = z.object({
+  current_password: z.string().min(1),
+  new_password: z.string().min(8, "Password must be at least 8 characters").max(72),
+});
+
+// POST /api/auth/change-password — authenticated; self-service password change.
+router.post(
+  "/change-password",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const { current_password, new_password } = changePasswordSchema.parse(req.body);
+
+    const { rows } = await query<{ password_hash: string }>(
+      "SELECT password_hash FROM app_users WHERE id = $1",
+      [userId]
+    );
+    const user = rows[0];
+    if (!user || !(await verifyPassword(current_password, user.password_hash))) {
+      throw new HttpError(400, "Current password is incorrect");
+    }
+
+    const passwordHash = await hashPassword(new_password);
+    await query("UPDATE app_users SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
+
+    res.json({ success: true });
+  })
+);
+
 // POST /api/auth/signout — stateless; client drops the token.
 router.post(
   "/signout",

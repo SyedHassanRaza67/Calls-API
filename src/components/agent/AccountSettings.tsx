@@ -40,6 +40,10 @@ export function AccountSettings() {
   const [showRegenerateDialog, setShowRegenerateDialog] = useState(false);
   const [keyToRegenerate, setKeyToRegenerate] = useState<ApiKeyRecord | null>(null);
   const [keyCopied, setKeyCopied] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
   // Fetch existing API keys (only metadata, no plaintext)
   useEffect(() => {
@@ -152,6 +156,50 @@ export function AccountSettings() {
     setShowRegenerateDialog(true);
   };
 
+  const updatePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: "Error",
+        description: "New password and confirmation do not match.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast({
+        title: "Error",
+        description: "New password must be at least 8 characters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    try {
+      await api.post("/api/auth/change-password", {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+
+      toast({
+        title: "Password Updated",
+        description: "Your password has been changed successfully.",
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error) {
+      console.error('Error changing password:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update password.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
+
   const activeKey = apiKeys.find(k => k.is_active);
 
   return (
@@ -187,6 +235,56 @@ export function AccountSettings() {
             </div>
           </div>
           <Button className="gradient-primary">Save Changes</Button>
+        </CardContent>
+      </Card>
+
+      {/* Change Password Card */}
+      <Card className="bg-card/50 border-border">
+        <CardHeader>
+          <CardTitle>Change Password</CardTitle>
+          <CardDescription>Update the password you use to sign in.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="currentPassword">Current Password</Label>
+              <Input
+                id="currentPassword"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+            <div className="hidden md:block" />
+            <div className="space-y-2">
+              <Label htmlFor="newPassword">New Password</Label>
+              <Input
+                id="newPassword"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm New Password</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+          <Button
+            className="gradient-primary"
+            onClick={updatePassword}
+            disabled={isUpdatingPassword}
+          >
+            {isUpdatingPassword ? "Updating..." : "Update Password"}
+          </Button>
         </CardContent>
       </Card>
 

@@ -1,240 +1,281 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Zap, Users, FlaskConical, PhoneCall, Copy, Trash2, Settings } from "lucide-react";
+import {
+  Rocket,
+  Users,
+  Zap,
+  PhoneCall,
+  ListChecks,
+  LayoutDashboard,
+  KeyRound,
+  LifeBuoy,
+} from "lucide-react";
 
 export function Instructions() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
         <h1 className="text-2xl font-bold">Help & Instructions</h1>
-        <p className="text-muted-foreground">Reference guide for setting up APIs and managing agents.</p>
+        <p className="text-muted-foreground">
+          A quick guide to setting up campaigns, managing your agents, and routing calls to buyers.
+        </p>
       </div>
 
-      {/* How to Add APIs */}
+      {/* 1. Getting Started */}
       <Card className="bg-card/50 border-border">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-primary" />
-            How to Add an API
+            <Rocket className="h-5 w-5 text-primary" />
+            Getting Started
           </CardTitle>
-          <CardDescription>Postman-style interface — works with any API provider</CardDescription>
+          <CardDescription>Set up your admin account and bring your team on board</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          {/* General Flow */}
+        <CardContent className="space-y-4 text-sm text-muted-foreground">
+          <p>
+            <strong className="text-foreground">Calls API</strong> is a lead-routing and pay-per-call
+            platform. You connect to buyer integrations, your agents run callers through them, and the
+            platform returns a tracking or forwarding number so the call can be routed and paid for.
+          </p>
           <div className="space-y-2">
-            <h3 className="font-semibold">General Setup</h3>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-              <li>Click <strong>Add API</strong></li>
-              <li>Enter a <strong>Campaign Name</strong> (what agents see)</li>
-              <li>Choose <strong>HTTP Method</strong> (GET or POST) from the top bar</li>
-              <li>Paste the <strong>API Endpoint URL</strong> in the URL field</li>
-              <li>Select <strong>Request Mode</strong> — Ping Only, Ping/Post, or RTB</li>
-              <li>If the API doesn't return a phone number, enter the <strong>Forwarding Number</strong></li>
-              <li>Add <strong>parameter rows</strong> with exact keys the API expects</li>
-              <li>Use the <strong>checkbox</strong> on each row to enable/disable individual params</li>
-              <li>Use the <strong>👤 Ask Agent</strong> toggle to make a field agent-fillable at call time</li>
-              <li>Set <strong>Body Format</strong> (JSON or Form Data) as required</li>
-              <li>Assign to an admin and click <strong>Create</strong></li>
-            </ol>
+            <h3 className="font-semibold text-foreground">Roles at a glance</h3>
+            <ul className="list-disc list-inside space-y-1">
+              <li><strong>Super Admin</strong> — platform-wide oversight and configuration.</li>
+              <li><strong>Admin</strong> — that's you. You sign up for the account, configure campaigns, and create agent logins.</li>
+              <li><strong>Agent</strong> — runs callers through your campaigns from the Agent Portal.</li>
+            </ul>
           </div>
-
-          {/* Template Variables */}
-          <div className="space-y-2 p-3 bg-muted/30 rounded-lg border border-border">
-            <h3 className="font-semibold text-sm">Template Variables Reference</h3>
-            <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
-              <div><code className="bg-muted px-1 rounded text-xs">{"{{phone}}"}</code> — Caller phone number</div>
-              <div><code className="bg-muted px-1 rounded text-xs">{"{{state}}"}</code> — Caller state (e.g., CA)</div>
-              <div><code className="bg-muted px-1 rounded text-xs">{"{{zip}}"}</code> — Caller zip code</div>
-              <div><code className="bg-muted px-1 rounded text-xs">{"{{api_key}}"}</code> — API Key field value</div>
-              <div><code className="bg-muted px-1 rounded text-xs">{"{{publisher_id}}"}</code> — Publisher ID field value</div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">When any param uses a template, custom fields become the <strong>entire</strong> request body (no default fields added).</p>
-          </div>
-
-          {/* Leadspedia */}
           <div className="space-y-2">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Badge variant="outline">Leadspedia</Badge>
-              Walk-In Tubs, D30, etc.
-            </h3>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-              <li>Set method to <strong>POST</strong>, mode to <strong>Ping Only</strong></li>
-              <li>Paste the <strong>API Endpoint URL</strong> from the buyer</li>
-              <li>Add params: <code className="text-xs bg-muted px-1 rounded">lp_campaign_id</code>, <code className="text-xs bg-muted px-1 rounded">lp_campaign_key</code></li>
-              <li>Add caller fields: <code className="text-xs bg-muted px-1 rounded">phone</code> = <code className="text-xs bg-muted px-1 rounded">{"{{phone}}"}</code>, <code className="text-xs bg-muted px-1 rounded">state</code> = <code className="text-xs bg-muted px-1 rounded">{"{{state}}"}</code>, <code className="text-xs bg-muted px-1 rounded">zip</code> = <code className="text-xs bg-muted px-1 rounded">{"{{zip}}"}</code></li>
-              <li>Body format is auto-detected as <strong>Form Data</strong> for Leadspedia URLs</li>
-              <li>Add the <strong>Forwarding Number</strong> if the API doesn't return one</li>
-            </ol>
-          </div>
-
-          {/* Trackdrive */}
-          <div className="space-y-2">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Badge variant="outline">Trackdrive</Badge>
-              Ping/Post
-            </h3>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-              <li>Set mode to <strong>Ping/Post</strong></li>
-              <li>Paste the <strong>Buyer API Link</strong> (posting_instructions URL) — the system auto-parses ping/post URLs and fields</li>
-              <li>Enter the <strong>Forwarding Number</strong> provided by the buyer</li>
-              <li>Add HOO, caps, payout info in the <strong>Notes</strong> field</li>
-            </ol>
-          </div>
-
-          {/* Ringba RTB */}
-          <div className="space-y-2">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Badge variant="outline">Ringba</Badge>
-              RTB (Real-Time Bidding)
-            </h3>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-              <li>Set provider to <strong>Ringba</strong>, mode to <strong>RTB</strong></li>
-              <li>Enter the <strong>RTB ID</strong> in the Publisher / Source ID field</li>
-              <li>The system sends CID, zipcode, state, and exposeCallerId automatically</li>
-              <li>On success, the agent sees the returned <strong>tracking number (DID)</strong></li>
-              <li>Add HOO and payout info in the <strong>Notes</strong> field</li>
-            </ol>
-            <div className="mt-2 p-3 bg-muted/50 rounded-lg text-xs space-y-1">
-              <p className="font-medium text-foreground">Auto-sent fields:</p>
-              <p><code>CID</code> = caller phone number</p>
-              <p><code>zipcode</code> = caller zip</p>
-              <p><code>state</code> = caller state</p>
-              <p><code>exposeCallerId</code> = yes</p>
-            </div>
-          </div>
-
-          {/* Custom GET */}
-          <div className="space-y-2">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Badge variant="outline">Custom GET</Badge>
-              Ringba Display/Enrich or similar
-            </h3>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-              <li>Set HTTP Method to <strong>GET</strong>, Mode to <strong>Ping Only</strong></li>
-              <li>Paste the full URL with parameter templates in the <strong>URL</strong> field</li>
-              <li>The system detects parameter names and maps caller data automatically</li>
-              <li>Put the <strong>static DID</strong> in the "Forwarding Number" field</li>
-            </ol>
-          </div>
-
-          {/* QuoteWizard */}
-          <div className="space-y-2">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Badge variant="outline">QuoteWizard</Badge>
-              Partial Lead Ping
-            </h3>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-              <li>Set provider to <strong>QuoteWizard</strong></li>
-              <li>Enter <strong>Campaign ID</strong> and <strong>ApiKey</strong> in the respective fields</li>
-              <li>The system builds the required nested JSON structure automatically</li>
-              <li>If accepted, the buyer's <strong>phoneNumber</strong> is shown as the DID</li>
-            </ol>
-          </div>
-
-          {/* Intelhouse */}
-          <div className="space-y-2">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Badge variant="outline">Intelhouse / Call Platform</Badge>
-              Ping/Post RTB
-            </h3>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-              <li>Set mode to <strong>Ping/Post</strong></li>
-              <li>Enter the <strong>Campaign ID</strong> (UUID) in the <code className="text-xs bg-muted px-1 rounded">campaign_id</code> param</li>
-              <li>Enter the <strong>Publisher ID</strong> in the Publisher / Source ID field</li>
-              <li>The system extracts the <strong>token</strong> from ping and passes it to post automatically</li>
-              <li>On success, the agent sees the <strong>routing number</strong> from the post response</li>
+            <h3 className="font-semibold text-foreground">First steps</h3>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>Sign up for an Admin account (only Admins self-register).</li>
+              <li>Create logins for your agents under <strong>Agents</strong> — they do not sign up themselves.</li>
+              <li>Add your buyer integrations under <strong>APIs</strong> as campaigns.</li>
+              <li>Have agents run callers through those campaigns from the <strong>Agent Portal</strong>.</li>
             </ol>
           </div>
         </CardContent>
       </Card>
 
-      {/* Assign APIs */}
+      {/* 2. Managing Agents */}
       <Card className="bg-card/50 border-border">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
-            Assigning APIs to Agents
+            Managing Agents
           </CardTitle>
+          <CardDescription>Create and maintain logins for your team</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>APIs are assigned to <strong>admins</strong>, not directly to agents. The flow is:</p>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            Agents cannot register on their own. As an Admin, you create and manage every agent login
+            from the <strong>Agents</strong> section.
+          </p>
           <ol className="list-decimal list-inside space-y-1">
-            <li>Super Admin creates an API config and assigns it to an <strong>Admin</strong></li>
-            <li>The Admin's agents automatically see that API in their workspace</li>
-            <li>Go to <strong>Users</strong> tab to manage which agents belong to which admin</li>
+            <li>Open the <strong>Agents</strong> section.</li>
+            <li>Click <strong>Add Agent</strong> and enter their name, email, and a password.</li>
+            <li>Share those credentials so the agent can sign in to the Agent Portal.</li>
+            <li>Edit or remove an agent at any time as your team changes.</li>
           </ol>
-          <p className="mt-2">
-            <strong>Tip:</strong> An agent sees all active APIs assigned to their managing admin.
+          <p>
+            <strong className="text-foreground">Tip:</strong> Agents automatically see the active
+            campaigns associated with your account — no per-agent assignment is required.
           </p>
         </CardContent>
       </Card>
 
-      {/* Test Tool */}
+      {/* 3. Setting up APIs / Campaigns */}
       <Card className="bg-card/50 border-border">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FlaskConical className="h-5 w-5 text-primary" />
-            Using the Test Tool
+            <Zap className="h-5 w-5 text-primary" />
+            Setting Up APIs &amp; Campaigns
           </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <ol className="list-decimal list-inside space-y-1">
-            <li>Open the Add/Edit API dialog</li>
-            <li>Fill in all required fields</li>
-            <li>Click the <strong>Send</strong> button in the top bar</li>
-            <li>The system sends a sample lead (CA / 90210 / +15551234567) to the API</li>
-            <li>Review the result — green = success, red = check the error details</li>
-          </ol>
-          <p className="mt-2">
-            <strong>All modes are testable:</strong> Ping Only, Ping/Post, and RTB campaigns can all be tested directly from the API config dialog. For RTB, make sure the Publisher/RTB ID is filled in.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* Managing Configs */}
-      <Card className="bg-card/50 border-border">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-primary" />
-            Managing API Configs
-          </CardTitle>
+          <CardDescription>Connect buyer integrations under APIs / Integrations</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm text-muted-foreground">
-          <div className="flex items-start gap-3">
-            <Copy className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-            <div>
-              <p className="font-medium text-foreground">Duplicate</p>
-              <p>Click the copy icon to duplicate a config. The copy is created as <strong>inactive</strong> with " (Copy)" appended to the name. Edit it to customize.</p>
+          <p>
+            Each entry under <strong>APIs</strong> is a <strong>campaign</strong> — an outbound
+            integration with a buyer. Campaigns support providers such as Retreaver, Ringba,
+            TrackDrive, LeadsPedia, and Service Direct.
+          </p>
+
+          <div className="space-y-2">
+            <h3 className="font-semibold text-foreground">Add a campaign</h3>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>Click <strong>Add API</strong>.</li>
+              <li>Give it a <strong>Campaign Name</strong> (this is what agents see).</li>
+              <li>Pick the provider and paste the buyer&apos;s endpoint URL and credentials.</li>
+              <li>Select the <strong>Request Mode</strong> (see below).</li>
+              <li>Map caller fields (phone, state, zip) and any provider-specific parameters.</li>
+              <li>Save, then <strong>test</strong> it before going live.</li>
+            </ol>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="font-semibold text-foreground">Request Modes</h3>
+            <div className="space-y-2">
+              <div className="flex items-start gap-3">
+                <Badge variant="outline" className="mt-0.5 shrink-0">Ping/Post</Badge>
+                <p>
+                  Two-step flow. A <strong>ping</strong> checks whether the buyer wants the call and at
+                  what price; if accepted, a <strong>post</strong> confirms it and returns the
+                  forwarding/tracking number.
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                <Badge variant="outline" className="mt-0.5 shrink-0">Ping Only</Badge>
+                <p>
+                  A single request that submits the caller and returns the response in one step — no
+                  separate confirmation call.
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                <Badge variant="outline" className="mt-0.5 shrink-0">RTB</Badge>
+                <p>
+                  Real-Time Bidding. Buyers bid on the call in real time and the winning bid returns a
+                  tracking number (DID) to route the caller to.
+                </p>
+              </div>
             </div>
           </div>
-          <div className="flex items-start gap-3">
-            <Trash2 className="h-4 w-4 mt-0.5 text-destructive shrink-0" />
-            <div>
-              <p className="font-medium text-foreground">Delete</p>
-              <p>Click the trash icon to <strong>permanently delete</strong> a config. This action cannot be undone.</p>
-            </div>
+
+          <div className="p-3 bg-muted/30 rounded-lg border border-border">
+            <p className="text-xs">
+              <strong className="text-foreground">Always test a new campaign.</strong> Use the test
+              action in the campaign dialog to send a sample caller and confirm you get a valid
+              response and number before agents rely on it.
+            </p>
           </div>
         </CardContent>
       </Card>
 
-      {/* Agent Workflow */}
+      {/* 4. Running Calls from the Agent Portal */}
       <Card className="bg-card/50 border-border">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <PhoneCall className="h-5 w-5 text-primary" />
-            Agent Workflow
+            Running Calls from the Agent Portal
           </CardTitle>
+          <CardDescription>How agents turn a caller into a routed, paid call</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
           <ol className="list-decimal list-inside space-y-1">
-            <li>Agent enters caller's <strong>Phone Number</strong>, <strong>State</strong>, and <strong>Zip Code</strong></li>
-            <li>Clicks <strong>Submit Lead</strong> — this creates a row with all available campaigns</li>
-            <li>Agent clicks each campaign button to trigger the API call</li>
-            <li>If a campaign has <strong>Ask Agent</strong> fields, a dialog prompts for those values first</li>
-            <li>On success, the agent sees the <strong>DID/tracking number</strong> — click to call or copy</li>
-            <li>On failure, the agent can click the <strong>retry</strong> button to try again</li>
-            <li>Click any result to view the full API response and admin notes</li>
+            <li>Enter the caller&apos;s <strong>Phone Number</strong>, <strong>State</strong>, and <strong>Zip Code</strong>.</li>
+            <li>Choose a campaign and <strong>trigger</strong> it to send the caller to the buyer.</li>
+            <li>
+              On success, a <strong>tracking / forwarding number</strong> is returned — route the caller
+              to that number to complete and bill the call.
+            </li>
+            <li>If the buyer declines or the campaign isn&apos;t a fit, try another campaign.</li>
           </ol>
+          <div className="p-3 bg-muted/30 rounded-lg border border-border">
+            <p className="text-xs">
+              <strong className="text-foreground">Reading the response:</strong> A success shows the
+              returned number and status. On a <strong>failure</strong>, open the result to view the
+              <strong> raw response</strong> from the buyer — it usually explains the reason (out of
+              hours, cap reached, missing field, no bid) and tells you what to fix or try next.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 5. Leads & Submissions */}
+      <Card className="bg-card/50 border-border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ListChecks className="h-5 w-5 text-primary" />
+            Leads &amp; Submissions
+          </CardTitle>
+          <CardDescription>Track every lead and what the buyer returned</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            The <strong>Leads</strong> section lists every submission your agents run, with the caller
+            details, the campaign used, and a status of <strong>success</strong> or <strong>failed</strong>.
+          </p>
+          <ul className="list-disc list-inside space-y-1">
+            <li>Open a lead to see the full response returned by the buyer.</li>
+            <li>Use failed submissions to spot configuration issues or buyer-side rejections.</li>
+            <li>Successful submissions show the tracking/forwarding number that was returned.</li>
+          </ul>
+        </CardContent>
+      </Card>
+
+      {/* 6. Dashboard & Analytics */}
+      <Card className="bg-card/50 border-border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <LayoutDashboard className="h-5 w-5 text-primary" />
+            Dashboard &amp; Analytics
+          </CardTitle>
+          <CardDescription>Measure performance over time</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <ul className="list-disc list-inside space-y-1">
+            <li>
+              The <strong>Dashboard</strong> shows headline stats — submissions, successes, and other
+              key metrics — with a <strong>date filter</strong> so you can focus on any period.
+            </li>
+            <li>
+              <strong>Analytics</strong> goes deeper into performance trends across campaigns and agents
+              to help you see what&apos;s converting.
+            </li>
+          </ul>
+          <p>
+            <strong className="text-foreground">Tip:</strong> Adjust the date filter to compare recent
+            performance against earlier periods and catch drop-offs early.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* 7. Account & Password */}
+      <Card className="bg-card/50 border-border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5 text-primary" />
+            Account &amp; Password
+          </CardTitle>
+          <CardDescription>Manage your sign-in and API keys</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            Open <strong>Account Settings</strong> from the avatar menu in the top-right corner to:
+          </p>
+          <ul className="list-disc list-inside space-y-1">
+            <li><strong>Change your password</strong> — do this periodically to keep your account secure.</li>
+            <li><strong>Manage API keys</strong> used to authenticate with the platform.</li>
+          </ul>
+          <p>
+            <strong className="text-foreground">Reminder:</strong> Each agent has their own login.
+            Never share a single account across your team.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* 8. Getting Help / Support */}
+      <Card className="bg-card/50 border-border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <LifeBuoy className="h-5 w-5 text-primary" />
+            Getting Help &amp; Support
+          </CardTitle>
+          <CardDescription>Know who to contact for which issue</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <ul className="list-disc list-inside space-y-1">
+            <li>
+              <strong>Buyer-specific issues</strong> (rejections, caps, payouts, hours of operation):
+              contact your <strong>Service Direct</strong> or buyer representative for that campaign.
+            </li>
+            <li>
+              <strong>Platform issues</strong> (sign-in, agents, campaign setup, errors in the app):
+              contact your <strong>platform administrator</strong>.
+            </li>
+          </ul>
+          <p>
+            When reporting a problem, include the campaign name, the caller details used, and the raw
+            response shown on a failed submission — it makes troubleshooting much faster.
+          </p>
         </CardContent>
       </Card>
     </div>
