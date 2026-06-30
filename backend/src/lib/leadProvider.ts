@@ -622,9 +622,11 @@ export async function runPingPost(
           };
         }
       } catch (e) {
+        const isAbort = e instanceof Error && e.name === "AbortError";
+        const msg = isAbort ? "Service Direct ping timed out (3s)" : "Service Direct ping request failed";
         return {
           status: 200,
-          body: { ok: false, action: "ping", has_bid: false, error: e instanceof Error && e.name === "AbortError" ? "Service Direct ping timed out" : "Service Direct ping request failed", raw: {} },
+          body: { ok: false, action: "ping", has_bid: false, error: msg, raw: { service_direct_error: msg, detail: e instanceof Error ? e.message : String(e), request_url: pingUrl } },
         };
       }
 
@@ -879,9 +881,11 @@ export async function runPingPost(
           };
         }
       } catch (e) {
+        const isAbort = e instanceof Error && e.name === "AbortError";
+        const msg = isAbort ? "Service Direct post timed out (3s)" : "Service Direct post request failed";
         return {
           status: 200,
-          body: { ok: false, action: "post", error: e instanceof Error && e.name === "AbortError" ? "Service Direct post timed out" : "Service Direct post request failed", raw: {} },
+          body: { ok: false, action: "post", error: msg, raw: { service_direct_error: msg, detail: e instanceof Error ? e.message : String(e), request_url: acceptUrl } },
         };
       }
 

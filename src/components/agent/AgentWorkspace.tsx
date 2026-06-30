@@ -648,13 +648,26 @@ export function AgentWorkspace() {
       }
     } catch (error) {
       console.error("Campaign call error:", error);
+      const apiErr = error instanceof ApiError ? error : null;
+      const message =
+        (error instanceof Error && error.message) ? error.message : "API call failed";
+      // Always surface something inspectable: the server's response body when we
+      // have one (ApiError.body), otherwise a synthesized object with the error.
+      const raw: Record<string, unknown> =
+        apiErr && apiErr.body !== undefined && apiErr.body !== null
+          ? (typeof apiErr.body === "object"
+              ? (apiErr.body as Record<string, unknown>)
+              : { response: apiErr.body, status: apiErr.status })
+          : { error: message, status: apiErr?.status ?? 0 };
       const errResult: CampaignResult = {
         status: "failed",
-        error: error instanceof Error ? error.message : "API call failed",
+        error: message,
+        raw,
+        httpStatus: apiErr?.status,
       };
       updateSubmission(submissionId, campaignId, errResult);
       showResultDialog(errResult);
-      toast({ title: "Error", description: "Failed to call campaign API", variant: "destructive" });
+      toast({ title: "Error", description: message, variant: "destructive" });
     } finally {
       // Refresh persisted submissions so admin + agent stay in sync after refresh
       queryClient.invalidateQueries({ queryKey: ["agent-submissions", user?.id] });
