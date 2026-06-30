@@ -13,6 +13,7 @@ const meUpdateSchema = z.object({
   full_name: z.string().optional(),
   phone: z.string().optional(),
   company: z.string().optional(),
+  company_logo: z.string().nullable().optional(),
   avatar_url: z.string().optional(),
 });
 
@@ -49,6 +50,30 @@ router.patch(
       [req.user!.id, ...values]
     );
     res.json(rows[0] || null);
+  })
+);
+
+// GET /api/profiles/branding — resolve the current user's company branding.
+// Agents inherit their managing admin's company name + logo via managed_by.
+router.get(
+  "/branding",
+  asyncHandler(async (req, res) => {
+    const { rows } = await query(
+      "SELECT managed_by, company, company_logo FROM profiles WHERE user_id = $1",
+      [req.user!.id]
+    );
+    const me = rows[0];
+    let company = me?.company ?? null;
+    let companyLogo = me?.company_logo ?? null;
+    if (me?.managed_by) {
+      const { rows: mgr } = await query(
+        "SELECT company, company_logo FROM profiles WHERE user_id = $1",
+        [me.managed_by]
+      );
+      company = mgr[0]?.company ?? null;
+      companyLogo = mgr[0]?.company_logo ?? null;
+    }
+    res.json({ company_name: company, company_logo: companyLogo });
   })
 );
 

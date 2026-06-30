@@ -17,6 +17,7 @@ import NotFound from "./pages/NotFound";
 // Lazy load heavy dashboard pages with preload capability
 const AgentPortal = lazy(() => import("./pages/AgentPortal"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const AccountSettingsPage = lazy(() => import("./pages/AccountSettingsPage"));
 
 // Preload functions for route prefetching
 const preloadAgentPortal = () => import("./pages/AgentPortal");
@@ -89,6 +90,7 @@ const App = () => (
                   <Route path="/" element={<Index />} />
                   <Route path="/auth" element={<Auth />} />
                   <Route path="/agent/*" element={<AgentPortal />} />
+                  <Route path="/account-settings" element={<AccountSettingsPage />} />
                   <Route path="/admin/*" element={<AdminDashboard />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>

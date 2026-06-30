@@ -11,12 +11,14 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Home, Users, LayoutDashboard, LogOut, User, Menu, MessageCircle } from "lucide-react";
 import logoUrl from "@/assets/codebean-logo.jpg";
+import { useBranding } from "@/hooks/useBranding";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 export function Navbar() {
   const { user, profile, isAdmin, signOut } = useAuth();
-  
+  const { data: branding } = useBranding();
+
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -63,7 +65,7 @@ export function Navbar() {
         <div className="flex h-14 items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <img src={logoUrl} alt="Calls API" className="h-12 w-auto object-contain" />
+            <img src={branding?.company_logo || logoUrl} alt={branding?.company_name || "Calls API"} className="h-12 w-auto object-contain" />
           </Link>
 
           {/* Desktop Navigation */}
@@ -93,7 +95,7 @@ export function Navbar() {
                   </div>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link to="/agent/settings" className="flex items-center gap-2">
+                    <Link to="/account-settings" className="flex items-center gap-2">
                       <User className="h-3.5 w-3.5" />
                       Account Settings
                     </Link>

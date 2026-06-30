@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Eye, EyeOff, RefreshCw, Key, AlertTriangle, Check } from "lucide-react";
+import { Copy, Eye, EyeOff, RefreshCw, Key, AlertTriangle, Check, Building2 } from "lucide-react";
 import { api } from "@/lib/api";
 import {
   AlertDialog,
@@ -28,9 +29,13 @@ interface ApiKeyRecord {
   last_used_at: string | null;
 }
 
+// Maximum size (in characters) for the encoded logo data URL (~150KB).
+const MAX_LOGO_DATA_URL_LENGTH = 150 * 1024;
+
 export function AccountSettings() {
-  const { profile, user } = useAuth();
+  const { profile, user, isAdmin } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
@@ -44,6 +49,151 @@ export function AccountSettings() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  // Company Profile (admin only)
+  const [companyName, setCompanyName] = useState(profile?.company || "");
+  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
+  const [isSavingCompany, setIsSavingCompany] = useState(false);
+
+  // Pre-fill company name + logo from /api/profiles/me (company_logo isn't on
+  // the cached auth profile shape, so fetch the full record for admins).
+  useEffect(() => {
+    if (!isAdmin || !user?.id) return;
+    let cancelled = false;
+    const fetchCompanyProfile = async () => {
+      try {
+        const me = await api.get<{ company?: string | null; company_logo?: string | null }>(
+          "/api/profiles/me"
+        );
+        if (cancelled || !me) return;
+        if (typeof me.company === "string") setCompanyName(me.company);
+        if (me.company_logo) setLogoDataUrl(me.company_logo);
+      } catch (error) {
+        console.error("Error loading company profile:", error);
+      }
+    };
+    fetchCompanyProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, user?.id]);
+
+  // Downscale + compress a selected image to a small data URL.
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxSide = 512;
+        let { width, height } = img;
+        if (width > height && width > maxSide) {
+          height = Math.round((height * maxSide) / width);
+          width = maxSide;
+        } else if (height > maxSide) {
+          width = Math.round((width * maxSide) / height);
+          height = maxSide;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          toast({
+            title: "Error",
+            description: "Unable to process the selected image.",
+            variant: "destructive",
+          });
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // PNG preserves transparency; otherwise JPEG compresses far smaller.
+        const hasAlpha = /image\/png|image\/webp/i.test(file.type);
+        let dataUrl = hasAlpha
+          ? canvas.toDataURL("image/png")
+          : canvas.toDataURL("image/jpeg", 0.85);
+
+        // If too big, progressively lower JPEG quality, then dimensions.
+        if (dataUrl.length > MAX_LOGO_DATA_URL_LENGTH) {
+          const qualities = [0.7, 0.55, 0.4];
+          for (const q of qualities) {
+            dataUrl = canvas.toDataURL("image/jpeg", q);
+            if (dataUrl.length <= MAX_LOGO_DATA_URL_LENGTH) break;
+          }
+        }
+        if (dataUrl.length > MAX_LOGO_DATA_URL_LENGTH) {
+          const scales = [0.75, 0.5];
+          for (const s of scales) {
+            const sw = Math.max(1, Math.round(width * s));
+            const sh = Math.max(1, Math.round(height * s));
+            canvas.width = sw;
+            canvas.height = sh;
+            const sctx = canvas.getContext("2d");
+            if (!sctx) break;
+            sctx.drawImage(img, 0, 0, sw, sh);
+            dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+            if (dataUrl.length <= MAX_LOGO_DATA_URL_LENGTH) break;
+          }
+        }
+
+        if (dataUrl.length > MAX_LOGO_DATA_URL_LENGTH) {
+          toast({
+            title: "Error",
+            description: "Logo is too large, please use a smaller image",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        setLogoDataUrl(dataUrl);
+      };
+      img.onerror = () => {
+        toast({
+          title: "Error",
+          description: "Could not load the selected image.",
+          variant: "destructive",
+        });
+      };
+      img.src = reader.result as string;
+    };
+    reader.onerror = () => {
+      toast({
+        title: "Error",
+        description: "Could not read the selected file.",
+        variant: "destructive",
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const saveCompanyProfile = async () => {
+    setIsSavingCompany(true);
+    try {
+      await api.patch("/api/profiles/me", {
+        company: companyName,
+        company_logo: logoDataUrl,
+      });
+      // Refresh the navbar branding so the new logo shows up immediately.
+      queryClient.invalidateQueries({ queryKey: ["branding"] });
+      toast({
+        title: "Company Profile Updated",
+        description: "Your company name and logo have been saved.",
+      });
+    } catch (error) {
+      console.error("Error saving company profile:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save company profile.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingCompany(false);
+    }
+  };
 
   // Fetch existing API keys (only metadata, no plaintext)
   useEffect(() => {
@@ -237,6 +387,65 @@ export function AccountSettings() {
           <Button className="gradient-primary">Save Changes</Button>
         </CardContent>
       </Card>
+
+      {/* Company Profile Card (admins only) */}
+      {isAdmin && (
+        <Card className="bg-card/50 border-border">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5" />
+              Company Profile
+            </CardTitle>
+            <CardDescription>
+              Set your company name and logo. Your logo appears in the navigation bar.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="companyName">Company Name</Label>
+              <Input
+                id="companyName"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="Your Company"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="companyLogo">Company Logo</Label>
+              <div className="flex items-center gap-4">
+                {logoDataUrl ? (
+                  <img
+                    src={logoDataUrl}
+                    alt="Company logo preview"
+                    className="h-16 w-16 rounded-lg object-contain border border-border bg-background/50 p-1"
+                  />
+                ) : (
+                  <div className="h-16 w-16 rounded-lg border border-dashed border-border bg-background/50 flex items-center justify-center text-muted-foreground">
+                    <Building2 className="h-6 w-6" />
+                  </div>
+                )}
+                <Input
+                  id="companyLogo"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleLogoFileChange}
+                  className="max-w-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                PNG, JPEG or WebP. Images are automatically resized and compressed.
+              </p>
+            </div>
+            <Button
+              className="gradient-primary"
+              onClick={saveCompanyProfile}
+              disabled={isSavingCompany}
+            >
+              {isSavingCompany ? "Saving..." : "Save Company Profile"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Change Password Card */}
       <Card className="bg-card/50 border-border">
