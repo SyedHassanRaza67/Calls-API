@@ -20,6 +20,18 @@ function dayKey(iso: string): string {
   return new Date(iso).toISOString().split("T")[0];
 }
 
+/** Best-effort human error from a persisted raw response (SD: message, PX: Message/Errors). */
+function extractLeadError(raw: any): string {
+  if (raw) {
+    if (typeof raw.error === "string" && raw.error) return raw.error;
+    if (typeof raw.message === "string" && raw.message) return raw.message;
+    if (typeof raw.Message === "string" && raw.Message) return raw.Message;
+    if (Array.isArray(raw.Errors) && raw.Errors.length) return raw.Errors.join(", ");
+    if (raw.data && typeof raw.data.message === "string" && raw.data.message) return raw.data.message;
+  }
+  return "API call failed";
+}
+
 function groupLeads(data: any[]): PersistedSubmission[] {
   // data is ordered by created_at DESC. Group by phone+state+zip+day.
   const map = new Map<string, PersistedSubmission>();
@@ -43,13 +55,15 @@ function groupLeads(data: any[]): PersistedSubmission[] {
     }
 
     if (lead.api_configuration_id) {
+      // Prefer the post/api response; fall back to the ping response so failed
+      // ping-stage leads (whose raw is stored in ping_response, not api_response)
+      // still show their raw response when re-opened.
+      const respRaw = (lead.api_response ?? lead.ping_response) as Record<string, unknown> | null | undefined;
       group.campaignResults[lead.api_configuration_id] = {
         status: (lead.status === "success" && lead.returned_did) ? "success" : lead.status === "pending" ? "idle" : "failed",
         did: lead.returned_did || undefined,
-        raw: (lead.api_response as Record<string, unknown>) || undefined,
-        error: lead.status === "failed"
-          ? ((lead.api_response as any)?.error || "API call failed")
-          : undefined,
+        raw: respRaw || undefined,
+        error: lead.status === "failed" ? extractLeadError(respRaw) : undefined,
       };
     }
   }
