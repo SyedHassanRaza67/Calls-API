@@ -240,8 +240,24 @@ export async function runPingPost(
   }
 
   const apiProvider = apiConfig.api_provider || "retreaver";
-  const formattedNumber = normalizePhoneNumber(caller_number);
+  let formattedNumber = normalizePhoneNumber(caller_number);
   const rawDigits = caller_number.replace(/\D/g, "");
+
+  // Phone number format ("how we send phone / caller ID"): apply the campaign's
+  // _phone_format meta field to the {{phone}} token / caller_id. Defaults to digits.
+  {
+    const phoneFmt =
+      (Array.isArray(apiConfig.custom_fields)
+        ? apiConfig.custom_fields.find((f: any) => f.key === "_phone_format")?.value
+        : undefined) || "digits";
+    const d = formattedNumber.replace(/\D/g, "");
+    const ten = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+    if (ten.length === 10) {
+      if (phoneFmt === "digits") formattedNumber = ten;
+      else if (phoneFmt === "us1") formattedNumber = "1" + ten;
+      else formattedNumber = "+1" + ten; // e164
+    }
+  }
 
   // Service Direct (Earn API) — detected by provider or by the SD host in the URL.
   // SD differs from the generic engine: bid/number are nested under `data`, and the

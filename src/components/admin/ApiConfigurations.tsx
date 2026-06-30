@@ -1369,6 +1369,26 @@ export function ApiConfigurations() {
                       </button>
                     ))}
                   </div>
+
+                  {/* Phone number format — how the phone token / caller ID is sent */}
+                  <div className="space-y-1.5 mt-3 rounded-md border border-border p-2.5">
+                    <Label className="text-xs font-medium">Phone number format (how we send phone / caller ID)</Label>
+                    <Select
+                      value={formData.custom_fields.find(f => f.key === "_phone_format")?.value || "digits"}
+                      onValueChange={(value) => {
+                        const filtered = formData.custom_fields.filter(f => f.key !== "_phone_format");
+                        setFormData({ ...formData, custom_fields: [...filtered, { key: "_phone_format", value, enabled: true }] });
+                      }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="digits">Digits only — 5551234567 (most common)</SelectItem>
+                        <SelectItem value="e164">+1 format — +15551234567 (Retreaver RTB, Twilio-style)</SelectItem>
+                        <SelectItem value="us1">1 + digits — 15551234567</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">Applied to the <code className="font-mono">{"{{phone}}"}</code> token (and caller ID) before the request is sent.</p>
+                  </div>
                 </div>
                     </TabsContent>
                     <TabsContent value="mapping" className="p-3 mt-0 data-[state=inactive]:hidden">
