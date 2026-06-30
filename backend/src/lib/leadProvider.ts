@@ -25,6 +25,33 @@ export function normalizePhoneNumber(phone: string): string {
   return `+1${digits}`;
 }
 
+/** fetch() with an abort-based timeout (used by the Service Direct branch). */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Resolve the Service Direct API key from the api_key column or an sd_api_key custom field. */
+function resolveSdApiKey(apiConfig: any): string {
+  if (typeof apiConfig.api_key === "string" && apiConfig.api_key) return apiConfig.api_key;
+  if (Array.isArray(apiConfig.custom_fields)) {
+    const f = apiConfig.custom_fields.find(
+      (x: any) => x.key === "sd_api_key" && x.enabled !== false
+    );
+    if (f && typeof f.value === "string") return f.value;
+  }
+  return "";
+}
+
 function getByPath(obj: unknown, path: string): unknown {
   if (!obj || !path) return undefined;
   const parts = path.split(".").map((p) => p.trim()).filter(Boolean);
@@ -215,6 +242,14 @@ export async function runPingPost(
   const apiProvider = apiConfig.api_provider || "retreaver";
   const formattedNumber = normalizePhoneNumber(caller_number);
   const rawDigits = caller_number.replace(/\D/g, "");
+
+  // Service Direct (Earn API) — detected by provider or by the SD host in the URL.
+  // SD differs from the generic engine: bid/number are nested under `data`, and the
+  // Post endpoint takes the request_id in the URL path (/partners/request/<id>/accept).
+  const isServiceDirect =
+    apiProvider === "servicedirect" ||
+    (typeof apiConfig.ping_url === "string" && apiConfig.ping_url.includes("servicedirect.com")) ||
+    (typeof apiConfig.post_url === "string" && apiConfig.post_url.includes("servicedirect.com"));
 
   // ── PING-ONLY ─────────────────────────────────────────────────────────
   if (action === "ping-only") {
@@ -545,6 +580,75 @@ export async function runPingPost(
     if (!pingUrl) {
       return { status: 400, body: { ok: false, error: "Ping URL not configured for this campaign" } };
     }
+
+    // ── Service Direct PING ───────────────────────────────────────────────
+    if (isServiceDirect) {
+      const sdApiKey = resolveSdApiKey(apiConfig);
+      const sdBody: Record<string, unknown> = {};
+      const sdFields = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : [])
+        .filter((f: any) => f.enabled !== false)
+        .filter((f: any) => f.stages?.ping !== false)
+        .filter((f: any) => f.key && !f.key.startsWith("_") && f.key !== "sd_api_key");
+      for (const field of sdFields) {
+        sdBody[field.key] = resolveFieldValue(
+          field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits
+        );
+      }
+      sdBody.sd_api_key = sdApiKey;
+      if (sdBody.zip_code === undefined || sdBody.zip_code === "") sdBody.zip_code = caller_zip;
+      if (sdBody.caller_id === undefined || sdBody.caller_id === "") sdBody.caller_id = formattedNumber;
+      if (test_mode) sdBody.test_mode = true;
+
+      let sdData: Record<string, unknown>;
+      let sdStatus: number;
+      try {
+        const sdResp = await fetchWithTimeout(
+          pingUrl,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(sdBody),
+          },
+          3000
+        );
+        sdStatus = sdResp.status;
+        const txt = await sdResp.text();
+        try {
+          sdData = JSON.parse(txt);
+        } catch {
+          return {
+            status: 200,
+            body: { ok: false, action: "ping", has_bid: false, error: "Invalid response from Service Direct (expected JSON)", raw: { text: txt.substring(0, 200) }, http_status: sdStatus },
+          };
+        }
+      } catch (e) {
+        return {
+          status: 200,
+          body: { ok: false, action: "ping", has_bid: false, error: e instanceof Error && e.name === "AbortError" ? "Service Direct ping timed out" : "Service Direct ping request failed", raw: {} },
+        };
+      }
+
+      const sdPayload = (sdData && typeof sdData === "object" ? (sdData as any).data : undefined) || {};
+      const availableBuyer = sdPayload.available_buyer === true;
+      const requestId =
+        sdPayload.request_id !== undefined && sdPayload.request_id !== null
+          ? String(sdPayload.request_id)
+          : undefined;
+      const rawBid = sdPayload.bid;
+      const bidAmount = typeof rawBid === "number" ? rawBid : parseFloat(rawBid) || 0;
+
+      if (availableBuyer && requestId !== undefined) {
+        return {
+          status: 200,
+          body: { ok: true, action: "ping", has_bid: true, external_lead_id: requestId, bid_amount: bidAmount, raw: sdData, http_status: sdStatus },
+        };
+      }
+      return {
+        status: 200,
+        body: { ok: false, action: "ping", has_bid: false, error: ((sdData as any).message as string) || "No buyer found for the provided zip code and service category", raw: sdData, http_status: sdStatus },
+      };
+    }
+
     if (apiProvider === "trackdrive" && pingUrl.includes("/posting_instructions/")) {
       return {
         status: 200,
@@ -728,6 +832,78 @@ export async function runPingPost(
     const postUrl = apiConfig.post_url;
     if (!postUrl) {
       return { status: 400, body: { ok: false, error: "Post URL not configured for this campaign" } };
+    }
+
+    // ── Service Direct POST (accept) ──────────────────────────────────────
+    if (isServiceDirect) {
+      const sdApiKey = resolveSdApiKey(apiConfig);
+
+      // request_id goes in the URL path: /partners/request/<request_id>/accept
+      const rawPostUrl = sanitizeUrl(postUrl);
+      let acceptUrl: string;
+      if (/\{\{\s*request_id\s*\}\}/i.test(rawPostUrl)) {
+        acceptUrl = rawPostUrl.replace(/\{\{\s*request_id\s*\}\}/gi, encodeURIComponent(external_lead_id!));
+      } else {
+        let base = "https://api.servicedirect.com";
+        try {
+          base = new URL(sanitizeUrl(apiConfig.ping_url || rawPostUrl)).origin;
+        } catch {
+          /* keep default base */
+        }
+        acceptUrl = `${base}/partners/request/${encodeURIComponent(external_lead_id!)}/accept`;
+      }
+
+      const sdPostBody: Record<string, unknown> = { sd_api_key: sdApiKey };
+      if (test_mode) sdPostBody.test_mode = true;
+
+      let sdData: Record<string, unknown>;
+      let sdStatus: number;
+      try {
+        const sdResp = await fetchWithTimeout(
+          acceptUrl,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(sdPostBody),
+          },
+          3000
+        );
+        sdStatus = sdResp.status;
+        const txt = await sdResp.text();
+        try {
+          sdData = JSON.parse(txt);
+        } catch {
+          return {
+            status: 200,
+            body: { ok: false, action: "post", error: "Invalid response from Service Direct (expected JSON)", raw: { text: txt.substring(0, 200) }, http_status: sdStatus },
+          };
+        }
+      } catch (e) {
+        return {
+          status: 200,
+          body: { ok: false, action: "post", error: e instanceof Error && e.name === "AbortError" ? "Service Direct post timed out" : "Service Direct post request failed", raw: {} },
+        };
+      }
+
+      const sdPayload = (sdData && typeof sdData === "object" ? (sdData as any).data : undefined) || {};
+      const phone = sdPayload.phone_number;
+      if (phone) {
+        const finalDid = String(phone);
+        if (lead_id) {
+          await query(
+            `UPDATE leads SET submission_stage = 'complete', returned_did = $2, status = 'success', api_response = $3 WHERE id = $1`,
+            [lead_id, finalDid, JSON.stringify(sdData)]
+          );
+        }
+        return {
+          status: 200,
+          body: { ok: true, action: "post", did: finalDid, raw: sdData, http_status: sdStatus },
+        };
+      }
+      return {
+        status: 200,
+        body: { ok: false, action: "post", error: ((sdData as any).message as string) || "Service Direct did not return a phone number", raw: sdData, http_status: sdStatus },
+      };
     }
 
     let postBody: Record<string, unknown>;
