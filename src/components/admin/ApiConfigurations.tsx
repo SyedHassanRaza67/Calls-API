@@ -809,7 +809,7 @@ export function ApiConfigurations() {
                 Add API
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[1100px] w-[95vw] h-[88vh] overflow-hidden flex flex-col p-4" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <DialogContent className="sm:max-w-[820px] w-[95vw] max-h-[90vh] overflow-hidden flex flex-col p-4" onCloseAutoFocus={(e) => e.preventDefault()}>
               <DialogHeader className="flex-shrink-0 pb-2">
                 <DialogTitle className="text-sm font-semibold">
                   {editingConfig ? "Edit API Configuration" : "Add New API"}
@@ -822,8 +822,10 @@ export function ApiConfigurations() {
                 </DialogDescription>
               </DialogHeader>
 
-              {/* Top request bar — always visible */}
-              <div className="flex-shrink-0 space-y-3">
+              {/* Scrollable form region — whole form scrolls as one */}
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col gap-3 mt-1">
+                {/* Campaign / Request Mode / URL */}
+                <div className="space-y-3">
                 {/* Campaign Name (3-part) */}
                 <div className="space-y-1.5">
                   <Label className="text-xs">Campaign Name *</Label>
@@ -1059,8 +1061,8 @@ export function ApiConfigurations() {
 
               </div>
 
-              {/* Body — single scrolling column */}
-              <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto mt-2 pr-1">
+              {/* Body — tabs + meta (ordered) */}
+              <div className="flex flex-col gap-3">
                 {/* Meta fields (order 2 — below the request panel) */}
                 <div className="flex flex-col gap-3 order-2">
                 {/* Notes */}
@@ -1193,15 +1195,15 @@ export function ApiConfigurations() {
                 </div>
 
                 {/* Request panel — Postman-style tabs (order 1) */}
-                <div className="flex flex-col flex-shrink-0 order-1 h-[360px] border border-border rounded-lg overflow-hidden">
-                  <Tabs defaultValue="params" className="flex-1 flex flex-col min-h-0">
+                <div className="flex flex-col order-1 border border-border rounded-lg overflow-hidden">
+                  <Tabs defaultValue="params" className="flex flex-col">
                     <TabsList className="grid w-full grid-cols-4 rounded-none border-b border-border bg-muted/40 h-9">
                       <TabsTrigger value="params" className="text-xs">Params</TabsTrigger>
                       <TabsTrigger value="mapping" className="text-xs">Mapping</TabsTrigger>
                       <TabsTrigger value="body" className="text-xs">Body</TabsTrigger>
                       <TabsTrigger value="response" className="text-xs">Response</TabsTrigger>
                     </TabsList>
-                    <TabsContent value="params" className="flex-1 overflow-y-auto p-3 mt-0 data-[state=inactive]:hidden">
+                    <TabsContent value="params" className="p-3 mt-0 data-[state=inactive]:hidden">
                 {/* Key-Value rows with checkboxes */}
                 <div className="space-y-1.5">
                   <Label className="flex items-center gap-1.5 text-xs">
@@ -1369,7 +1371,7 @@ export function ApiConfigurations() {
                   </div>
                 </div>
                     </TabsContent>
-                    <TabsContent value="mapping" className="flex-1 overflow-y-auto p-3 mt-0 data-[state=inactive]:hidden">
+                    <TabsContent value="mapping" className="p-3 mt-0 data-[state=inactive]:hidden">
                       {formData.api_mode === "ping-post" ? (
                         <>
                 {/* Ping ID Mapping (only for ping-post) */}
@@ -1410,7 +1412,7 @@ export function ApiConfigurations() {
                         <p className="text-xs text-muted-foreground">Ping ID Mapping is only available in <span className="font-medium text-foreground">Ping / Post</span> mode.</p>
                       )}
                     </TabsContent>
-                    <TabsContent value="body" className="flex-1 overflow-y-auto p-3 mt-0 data-[state=inactive]:hidden">
+                    <TabsContent value="body" className="p-3 mt-0 data-[state=inactive]:hidden">
                       {["POST", "PUT", "PATCH"].includes(formData.http_method) ? (
                         <>
                 {/* Body Format (for POST/PUT/PATCH) */}
@@ -1440,7 +1442,7 @@ export function ApiConfigurations() {
                         <p className="text-xs text-muted-foreground"><span className="font-mono font-semibold">{formData.http_method}</span> requests don't have a body.</p>
                       )}
                     </TabsContent>
-                    <TabsContent value="response" className="flex-1 overflow-y-auto p-3 mt-0 data-[state=inactive]:hidden">
+                    <TabsContent value="response" className="p-3 mt-0 data-[state=inactive]:hidden">
                       {testResult ? (
                   <div className="border border-border rounded-md overflow-hidden">
                     <div className="flex items-center justify-between px-3 py-1.5 bg-muted/40 border-b border-border">
@@ -1471,6 +1473,7 @@ export function ApiConfigurations() {
                     </TabsContent>
                   </Tabs>
                 </div>
+              </div>
               </div>
 
               <DialogFooter className="gap-2 sm:gap-0 flex-shrink-0">
