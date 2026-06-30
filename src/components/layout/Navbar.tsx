@@ -5,19 +5,22 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Home, Users, LayoutDashboard, LogOut, User, Menu, MessageCircle } from "lucide-react";
+import { Home, Users, LayoutDashboard, LogOut, User, Menu, MessageCircle, Palette, Check } from "lucide-react";
 import logoUrl from "@/assets/codebean-logo.jpg";
 import { useBranding } from "@/hooks/useBranding";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useAppTheme } from "@/contexts/ThemeContext";
 
 export function Navbar() {
   const { user, profile, isAdmin, signOut } = useAuth();
   const { data: branding } = useBranding();
+  const { theme, setTheme, themes } = useAppTheme();
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -65,7 +68,11 @@ export function Navbar() {
         <div className="flex h-14 items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <img src={branding?.company_logo || logoUrl} alt={branding?.company_name || "Calls API"} className="h-12 w-auto object-contain" />
+            <img
+              src={branding?.company_logo || logoUrl}
+              alt={branding?.company_name || "Calls API"}
+              className="h-10 w-10 rounded-full object-cover border border-border bg-background"
+            />
           </Link>
 
           {/* Desktop Navigation */}
@@ -75,6 +82,38 @@ export function Navbar() {
 
           {/* Right Section */}
           <div className="flex items-center gap-3">
+
+            {/* Theme Switcher */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Change theme">
+                  <Palette className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel>Theme</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {themes.map((t) => (
+                  <DropdownMenuItem
+                    key={t.id}
+                    onClick={() => setTheme(t.id)}
+                    className="flex items-center gap-2"
+                  >
+                    <span
+                      className="h-4 w-4 shrink-0 rounded-full border border-border"
+                      style={{ background: t.swatch }}
+                    />
+                    <span className="flex-1">{t.label}</span>
+                    {t.kind === "live" && (
+                      <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary">
+                        Live
+                      </span>
+                    )}
+                    {theme === t.id && <Check className="h-3.5 w-3.5 text-primary" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             {/* User Menu or Auth Buttons */}
             {user ? (

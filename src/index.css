@@ -95,6 +95,185 @@
     --sidebar-border: 222 30% 15%;
     --sidebar-ring: 217 91% 50%;
   }
+
+  /* ============================================================
+     6-THEME SYSTEM — each theme class is applied on <html>.
+     HSL triplets, same format as the tokens above.
+     ============================================================ */
+
+  /* theme-indigo — mirrors the default :root look (Corporate Navy). */
+  .theme-indigo {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 224 76% 33%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 215 25% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 215 25% 96%;
+    --muted-foreground: 215 16% 42%;
+    --accent: 215 30% 92%;
+    --accent-foreground: 224 76% 33%;
+    --border: 215 20% 88%;
+    --input: 215 20% 88%;
+    --ring: 224 76% 33%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 224 76% 33%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 215 25% 96%;
+    --sidebar-accent-foreground: 224 76% 33%;
+    --sidebar-border: 215 20% 90%;
+    --sidebar-ring: 224 76% 33%;
+  }
+
+  /* theme-emerald — fresh green/teal palette. */
+  .theme-emerald {
+    --background: 150 30% 98%;
+    --foreground: 160 40% 12%;
+    --card: 150 30% 99%;
+    --card-foreground: 160 40% 12%;
+    --popover: 150 30% 99%;
+    --popover-foreground: 160 40% 12%;
+    --primary: 160 84% 32%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 152 30% 94%;
+    --secondary-foreground: 160 40% 14%;
+    --muted: 152 30% 94%;
+    --muted-foreground: 155 15% 40%;
+    --accent: 168 60% 88%;
+    --accent-foreground: 168 84% 25%;
+    --border: 152 25% 86%;
+    --input: 152 25% 86%;
+    --ring: 160 84% 32%;
+    --sidebar-background: 155 35% 96%;
+    --sidebar-foreground: 160 40% 14%;
+    --sidebar-primary: 160 84% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 168 50% 90%;
+    --sidebar-accent-foreground: 168 84% 25%;
+    --sidebar-border: 152 25% 86%;
+    --sidebar-ring: 160 84% 32%;
+  }
+
+  /* theme-rose — warm pink/rose palette. */
+  .theme-rose {
+    --background: 350 60% 99%;
+    --foreground: 340 35% 15%;
+    --card: 350 60% 99%;
+    --card-foreground: 340 35% 15%;
+    --popover: 350 60% 99%;
+    --popover-foreground: 340 35% 15%;
+    --primary: 346 77% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 345 50% 96%;
+    --secondary-foreground: 340 35% 18%;
+    --muted: 345 50% 96%;
+    --muted-foreground: 340 15% 45%;
+    --accent: 350 80% 93%;
+    --accent-foreground: 346 77% 42%;
+    --border: 345 40% 90%;
+    --input: 345 40% 90%;
+    --ring: 346 77% 50%;
+    --sidebar-background: 348 55% 97%;
+    --sidebar-foreground: 340 35% 18%;
+    --sidebar-primary: 346 77% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 350 70% 92%;
+    --sidebar-accent-foreground: 346 77% 42%;
+    --sidebar-border: 345 40% 90%;
+    --sidebar-ring: 346 77% 50%;
+  }
+
+  /* theme-midnight — self-contained DARK palette, vivid cyan/violet accents. */
+  .theme-midnight {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 40% 9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 40% 9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 190 95% 50%;
+    --primary-foreground: 222 47% 8%;
+    --secondary: 222 30% 14%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 222 30% 14%;
+    --muted-foreground: 215 20% 60%;
+    --accent: 265 90% 60%;
+    --accent-foreground: 0 0% 100%;
+    --border: 222 30% 18%;
+    --input: 222 30% 18%;
+    --ring: 190 95% 50%;
+    --sidebar-background: 222 47% 4%;
+    --sidebar-foreground: 210 40% 95%;
+    --sidebar-primary: 190 95% 50%;
+    --sidebar-primary-foreground: 222 47% 8%;
+    --sidebar-accent: 222 30% 12%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 222 30% 14%;
+    --sidebar-ring: 190 95% 50%;
+  }
+
+  /* theme-aurora — LIVE: indigo/violet/cyan palette (animated sidebar). */
+  .theme-aurora {
+    --background: 240 40% 99%;
+    --foreground: 245 47% 12%;
+    --card: 240 40% 99%;
+    --card-foreground: 245 47% 12%;
+    --popover: 240 40% 99%;
+    --popover-foreground: 245 47% 12%;
+    --primary: 250 84% 54%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 245 40% 96%;
+    --secondary-foreground: 245 47% 15%;
+    --muted: 245 40% 96%;
+    --muted-foreground: 245 15% 45%;
+    --accent: 190 90% 90%;
+    --accent-foreground: 250 84% 45%;
+    --border: 245 30% 90%;
+    --input: 245 30% 90%;
+    --ring: 250 84% 54%;
+    --sidebar-background: 250 60% 30%;
+    --sidebar-foreground: 240 40% 96%;
+    --sidebar-primary: 190 95% 55%;
+    --sidebar-primary-foreground: 245 47% 12%;
+    --sidebar-accent: 250 50% 40%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 250 40% 45%;
+    --sidebar-ring: 190 95% 55%;
+  }
+
+  /* theme-sunset — LIVE: orange/pink/purple palette (animated sidebar). */
+  .theme-sunset {
+    --background: 30 60% 99%;
+    --foreground: 20 40% 14%;
+    --card: 30 60% 99%;
+    --card-foreground: 20 40% 14%;
+    --popover: 30 60% 99%;
+    --popover-foreground: 20 40% 14%;
+    --primary: 18 90% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 25 50% 95%;
+    --secondary-foreground: 20 40% 16%;
+    --muted: 25 50% 95%;
+    --muted-foreground: 20 15% 45%;
+    --accent: 330 85% 92%;
+    --accent-foreground: 330 80% 45%;
+    --border: 25 40% 90%;
+    --input: 25 40% 90%;
+    --ring: 18 90% 52%;
+    --sidebar-background: 300 50% 30%;
+    --sidebar-foreground: 30 60% 97%;
+    --sidebar-primary: 18 95% 58%;
+    --sidebar-primary-foreground: 20 40% 14%;
+    --sidebar-accent: 330 60% 45%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 320 40% 45%;
+    --sidebar-ring: 18 95% 58%;
+  }
 }
 
 @layer base {
@@ -175,5 +354,62 @@
     .animate-particle-3 {
       animation: none !important;
     }
+  }
+}
+
+/* ============================================================
+   Admin sidebar — owned by the theme system.
+   Base uses the theme's sidebar tokens; LIVE themes (aurora /
+   sunset) get an animated multi-stop gradient.
+   ============================================================ */
+@layer components {
+  .app-sidebar {
+    background-color: hsl(var(--sidebar-background));
+    color: hsl(var(--sidebar-foreground));
+  }
+
+  .theme-aurora .app-sidebar {
+    color: hsl(var(--sidebar-foreground));
+    background-image: linear-gradient(
+      135deg,
+      hsl(245 80% 40%),
+      hsl(260 78% 45%),
+      hsl(280 70% 48%),
+      hsl(190 85% 48%)
+    );
+    background-size: 200% 200%;
+    animation: appGradientShift 14s ease infinite;
+  }
+
+  .theme-sunset .app-sidebar {
+    color: hsl(var(--sidebar-foreground));
+    background-image: linear-gradient(
+      135deg,
+      hsl(25 92% 52%),
+      hsl(345 82% 55%),
+      hsl(320 75% 50%),
+      hsl(280 70% 48%)
+    );
+    background-size: 200% 200%;
+    animation: appGradientShift 14s ease infinite;
+  }
+}
+
+@keyframes appGradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-aurora .app-sidebar,
+  .theme-sunset .app-sidebar {
+    animation: none !important;
   }
 }

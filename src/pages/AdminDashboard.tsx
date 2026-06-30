@@ -6,7 +6,7 @@ import { Layout } from "@/components/layout/Layout";
 import { AdminDashboard as AdminDashboardComponent } from "@/components/admin/AdminDashboard";
 import { UserManagement } from "@/components/admin/UserManagement";
 import { Analytics } from "@/components/admin/Analytics";
-import { SystemSettings } from "@/components/admin/SystemSettings";
+import { SettingsTabs } from "@/components/admin/SettingsTabs";
 import { LeadsManagement } from "@/components/admin/LeadsManagement";
 import { ApiConfigurations } from "@/components/admin/ApiConfigurations";
 import { Instructions } from "@/components/admin/Instructions";
@@ -92,7 +92,7 @@ export default function AdminDashboardPage() {
     <Layout showFooter={false}>
       <div className="min-h-[calc(100vh-4rem)] flex">
         {/* Sidebar */}
-        <aside className="w-64 border-r border-border bg-card/30 p-4 hidden md:block">
+        <aside className="app-sidebar w-64 border-r border-sidebar-border bg-sidebar text-sidebar-foreground p-4 hidden md:block">
           {/* Role Indicator */}
           {isSuperAdmin && (
             <div className="mb-4 p-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-center">
@@ -114,8 +114,12 @@ export default function AdminDashboardPage() {
             {navItems.map((item) => (
               <Button
                 key={item.path}
-                variant={isActive(item.path) ? "secondary" : "ghost"}
-                className={`w-full justify-start ${isActive(item.path) ? "bg-primary/10 text-primary" : ""}`}
+                variant="ghost"
+                className={`w-full justify-start ${
+                  isActive(item.path)
+                    ? "bg-sidebar-accent text-sidebar-primary hover:bg-sidebar-accent hover:text-sidebar-primary"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                }`}
                 asChild
               >
                 <Link to={item.path}>
@@ -128,14 +132,18 @@ export default function AdminDashboardPage() {
         </aside>
 
         {/* Mobile Navigation */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 border-t border-border bg-card/95 backdrop-blur-lg p-2 z-50">
+        <div className="app-sidebar md:hidden fixed bottom-0 left-0 right-0 border-t border-sidebar-border bg-sidebar text-sidebar-foreground backdrop-blur-lg p-2 z-50">
           <div className="flex justify-around">
             {navItems.map((item) => (
               <Button
                 key={item.path}
                 variant="ghost"
                 size="sm"
-                className={isActive(item.path) ? "text-primary" : "text-muted-foreground"}
+                className={
+                  isActive(item.path)
+                    ? "bg-sidebar-accent text-sidebar-primary hover:bg-sidebar-accent hover:text-sidebar-primary"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                }
                 asChild
               >
                 <Link to={item.path} className="flex flex-col items-center gap-1">
@@ -158,7 +166,7 @@ export default function AdminDashboardPage() {
             <Route path="users" element={<UserManagement />} />
             <Route path="apis" element={<ApiConfigurations />} />
             <Route path="analytics" element={<Analytics />} />
-            <Route path="settings" element={<SystemSettings />} />
+            <Route path="settings" element={<SettingsTabs />} />
             <Route path="instructions" element={<Instructions />} />
           </Routes>
         </main>

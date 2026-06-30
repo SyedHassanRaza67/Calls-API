@@ -8,8 +8,57 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Users, Activity, TrendingUp, CheckCircle, CalendarRange } from "lucide-react";
+import {
+  Users,
+  Activity,
+  TrendingUp,
+  CheckCircle,
+  CalendarRange,
+  LineChart as LineChartIcon,
+  PieChart as PieChartIcon,
+  BarChart3,
+} from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+} from "recharts";
 import { useDashboardStats, useProfiles, useLeads, useApiConfigurations } from "@/hooks/useAdminData";
+
+/* -------------------------------------------------------------------------- */
+/*  Chart theme colors — adapt to the app theme via CSS variables where useful */
+/* -------------------------------------------------------------------------- */
+
+const PRIMARY_COLOR = "hsl(var(--primary))";
+const SUCCESS_COLOR = "hsl(152 69% 40%)"; // emerald
+const FAILED_COLOR = "hsl(351 80% 56%)"; // rose
+// Tasteful accent palette for the per-campaign bars (top of list = primary).
+const CAMPAIGN_COLORS = [
+  PRIMARY_COLOR,
+  "hsl(199 89% 48%)",
+  "hsl(262 83% 58%)",
+  "hsl(38 92% 50%)",
+  SUCCESS_COLOR,
+  FAILED_COLOR,
+];
+
+const CHART_TOOLTIP_STYLE = {
+  background: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: 8,
+  color: "hsl(var(--foreground))",
+  fontSize: 12,
+} as const;
+const CHART_AXIS_TICK = { fill: "hsl(var(--muted-foreground))", fontSize: 12 } as const;
 
 /* -------------------------------------------------------------------------- */
 /*  Date helpers — all calendar math is done in US Eastern (America/New_York)  */
@@ -271,6 +320,57 @@ export function AdminDashboard() {
       .slice(0, 5);
   }, [leads, apiConfigs]);
 
+  // Per-day lead counts across the selected ET range (drives the trend chart).
+  // "All Time" / open-ended ranges are capped to a trailing 30-day window so the
+  // series stays readable; single-day ranges render as a single point.
+  const leadsTrend = useMemo(() => {
+    const { start, end } = getEtRangeBounds(rangeKey);
+    const today = etDateString(new Date());
+    const endDay = end ?? today;
+    let startDay = start ?? addDaysToDateString(endDay, -29);
+    // Safety cap: never render more than 30 buckets.
+    const earliestAllowed = addDaysToDateString(endDay, -29);
+    if (startDay < earliestAllowed) startDay = earliestAllowed;
+
+    const counts = new Map<string, number>();
+    leads?.forEach((l) => {
+      const d = etDateString(new Date(l.created_at));
+      if (d >= startDay && d <= endDay) counts.set(d, (counts.get(d) || 0) + 1);
+    });
+
+    const series: { date: string; label: string; count: number }[] = [];
+    for (let day = startDay; day <= endDay; day = addDaysToDateString(day, 1)) {
+      series.push({ date: day, label: day.slice(5), count: counts.get(day) || 0 });
+    }
+    return series;
+  }, [leads, rangeKey]);
+
+  // Success vs failed split for the donut (failed = everything not "success").
+  const statusBreakdown = useMemo(() => {
+    const success = rangeStats.success;
+    const failed = Math.max(rangeStats.total - success, 0);
+    return [
+      { name: "Success", value: success, color: SUCCESS_COLOR },
+      { name: "Failed", value: failed, color: FAILED_COLOR },
+    ];
+  }, [rangeStats]);
+
+  // Leads per campaign within the selected range (top 6 by volume).
+  const leadsByCampaign = useMemo(() => {
+    const { start, end } = getEtRangeBounds(rangeKey);
+    const map = new Map<string, number>();
+    leads?.forEach((l) => {
+      if (!isWithinEtRange(l.created_at, start, end)) return;
+      const id = l.api_configuration_id || "unknown";
+      map.set(id, (map.get(id) || 0) + 1);
+    });
+    const names = new Map(apiConfigs?.map((c) => [c.id, c.name]) || []);
+    return Array.from(map.entries())
+      .map(([id, value]) => ({ name: names.get(id) || "Unknown Campaign", value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
+  }, [leads, apiConfigs, rangeKey]);
+
   const formatTimeAgo = useCallback((dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -358,6 +458,165 @@ export function AdminDashboard() {
             isLoading={isLoading}
           />
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {/* Leads Trend */}
+        <Card className="bg-card/50 border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <LineChartIcon className="h-4 w-4 text-primary" />
+              Leads Trend
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Daily submissions ({rangeOption.label.toLowerCase()})
+            </p>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-[220px] w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={leadsTrend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="leadsTrendFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={PRIMARY_COLOR} stopOpacity={0.35} />
+                      <stop offset="95%" stopColor={PRIMARY_COLOR} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={CHART_AXIS_TICK}
+                    tickLine={false}
+                    axisLine={{ stroke: "hsl(var(--border))" }}
+                    minTickGap={16}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={CHART_AXIS_TICK}
+                    tickLine={false}
+                    axisLine={false}
+                    width={32}
+                  />
+                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ stroke: "hsl(var(--border))" }} />
+                  <Area
+                    type="monotone"
+                    dataKey="count"
+                    name="Leads"
+                    stroke={PRIMARY_COLOR}
+                    strokeWidth={2}
+                    fill="url(#leadsTrendFill)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Success vs Failed */}
+        <Card className="bg-card/50 border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <PieChartIcon className="h-4 w-4 text-emerald-500" />
+              Success vs Failed
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Lead outcomes ({rangeOption.label.toLowerCase()})
+            </p>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-[220px] w-full" />
+            ) : rangeStats.total === 0 ? (
+              <div className="flex h-[220px] items-center justify-center">
+                <p className="text-sm text-muted-foreground">No leads in this range.</p>
+              </div>
+            ) : (
+              <div className="relative">
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                    <Pie
+                      data={statusBreakdown}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={62}
+                      outerRadius={88}
+                      paddingAngle={2}
+                      stroke="none"
+                    >
+                      {statusBreakdown.map((entry) => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-bold tracking-tight">
+                    {rangeStats.successRate.toFixed(0)}%
+                  </span>
+                  <span className="text-xs text-muted-foreground">success</span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Leads by Campaign */}
+        <Card className="bg-card/50 border-border md:col-span-2 xl:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4 text-violet-500" />
+              Leads by Campaign
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Top campaigns ({rangeOption.label.toLowerCase()})
+            </p>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-[220px] w-full" />
+            ) : leadsByCampaign.length === 0 ? (
+              <div className="flex h-[220px] items-center justify-center">
+                <p className="text-sm text-muted-foreground">No campaign data in this range.</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart
+                  data={leadsByCampaign}
+                  layout="vertical"
+                  margin={{ top: 4, right: 12, left: 4, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    allowDecimals={false}
+                    tick={CHART_AXIS_TICK}
+                    tickLine={false}
+                    axisLine={{ stroke: "hsl(var(--border))" }}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tick={CHART_AXIS_TICK}
+                    tickLine={false}
+                    axisLine={false}
+                    width={96}
+                  />
+                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ fill: "hsl(var(--muted) / 0.4)" }} />
+                  <Bar dataKey="value" name="Leads" radius={[0, 4, 4, 0]}>
+                    {leadsByCampaign.map((entry, i) => (
+                      <Cell key={entry.name} fill={CAMPAIGN_COLORS[i % CAMPAIGN_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

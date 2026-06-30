@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ViewModeProvider } from "@/contexts/ViewModeContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import { Loader2 } from "lucide-react";
 import { PausedAccountScreen } from "@/components/PausedAccountScreen";
 
@@ -77,8 +78,9 @@ function GlobalPauseGate({ children }: { children: React.ReactNode }) {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <AuthProvider>
+    <ThemeProvider>
+      <TooltipProvider>
+        <AuthProvider>
         <ViewModeProvider>
           <Toaster />
           <Sonner />
@@ -98,8 +100,9 @@ const App = () => (
             </GlobalPauseGate>
           </BrowserRouter>
         </ViewModeProvider>
-      </AuthProvider>
-    </TooltipProvider>
+        </AuthProvider>
+      </TooltipProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 
