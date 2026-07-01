@@ -22,6 +22,17 @@ function sanitizeUrl(url: string): string {
   return cleaned;
 }
 
+// Fold the upstream HTTP status into the persisted response JSON so the agent
+// UI can still render the status badge after a reload (the leads table has no
+// dedicated column — see useAgentSubmissions.ts which reads __http_status back).
+function withHttpStatus(raw: unknown, httpStatus: unknown): unknown {
+  if (typeof httpStatus !== "number") return raw;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return { ...(raw as Record<string, unknown>), __http_status: httpStatus };
+  }
+  return { raw: raw ?? null, __http_status: httpStatus };
+}
+
 // ── GET /api/leads?days=&limit= — scoped to user / managed agents ────────
 router.get(
   "/",
@@ -115,7 +126,7 @@ router.post(
           status: ok ? "success" : "failed",
           submission_stage: "complete",
           returned_did: did,
-          api_response: body.raw,
+          api_response: withHttpStatus(body.raw, body.http_status),
         });
         body.lead_id = input.lead_id;
       }
@@ -152,7 +163,7 @@ router.post(
         submission_stage: stage,
         external_lead_id: externalLeadId,
         returned_did: did,
-        ping_response: body.raw,
+        ping_response: withHttpStatus(body.raw, body.http_status),
       });
       body.lead_id = leadId;
     } else {

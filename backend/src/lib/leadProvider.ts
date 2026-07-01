@@ -516,7 +516,7 @@ export async function runPingPost(
       const textResponse = await response.text();
       return {
         status: 200,
-        body: { ok: false, error: "Invalid response from ping endpoint", raw: { text: textResponse.substring(0, 200) } },
+        body: { ok: false, error: "Invalid response from ping endpoint", raw: { text: textResponse.substring(0, 200) }, http_status: response.status },
       };
     }
     const postUpstreamStatus = response.status;
@@ -732,7 +732,7 @@ export async function runPingPost(
       const textResponse = await pingResponse.text();
       return {
         status: 200,
-        body: { ok: false, error: "Invalid response from ping endpoint", raw: { text: textResponse.substring(0, 200) } },
+        body: { ok: false, error: "Invalid response from ping endpoint", raw: { text: textResponse.substring(0, 200) }, http_status: pingResponse.status },
       };
     }
     const pingUpstreamStatus = pingResponse.status;
@@ -1025,7 +1025,7 @@ export async function runPingPost(
       const textResponse = await postResponse.text();
       return {
         status: 200,
-        body: { ok: false, error: "Invalid response from post endpoint", raw: { text: textResponse.substring(0, 200) } },
+        body: { ok: false, error: "Invalid response from post endpoint", raw: { text: textResponse.substring(0, 200) }, http_status: postResponse.status },
       };
     }
     const postUpstreamStatus = postResponse.status;
@@ -1143,7 +1143,7 @@ export async function runPingPost(
       } catch {
         return {
           status: 200,
-          body: { ok: false, action: "rtb", error: "Ringba returned an invalid response", raw: { text: textResponse.substring(0, 200) } },
+          body: { ok: false, action: "rtb", error: "Ringba returned an invalid response", raw: { text: textResponse.substring(0, 200) }, http_status: ringbaResponse.status },
         };
       }
     }
