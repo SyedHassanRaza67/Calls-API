@@ -9,15 +9,20 @@ import { HttpError } from "../types";
 const router = Router();
 router.use(requireAuth);
 
+// NOTE: `company` is intentionally NOT self-editable. Agents inherit their
+// admin's company name and their logins are tied to the company email domain,
+// so a self-serve rename would orphan existing agents. It is set once at signup.
 const meUpdateSchema = z.object({
   full_name: z.string().optional(),
   phone: z.string().optional(),
-  company: z.string().optional(),
   company_logo: z.string().nullable().optional(),
   avatar_url: z.string().optional(),
 });
 
+// The admin path may still set company/company_domain when provisioning/fixing
+// accounts (super_admin or a managing admin), so it keeps `company`.
 const adminUpdateSchema = meUpdateSchema.extend({
+  company: z.string().optional(),
   is_paused: z.boolean().optional(),
   paused_reason: z.string().nullable().optional(),
   managed_by: z.string().uuid().nullable().optional(),

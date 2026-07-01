@@ -173,15 +173,16 @@ export function AccountSettings() {
   const saveCompanyProfile = async () => {
     setIsSavingCompany(true);
     try {
+      // Company name is locked (agents' logins depend on it) — only the logo is
+      // editable here, so we intentionally send just company_logo.
       await api.patch("/api/profiles/me", {
-        company: companyName,
         company_logo: logoDataUrl,
       });
       // Refresh the navbar branding so the new logo shows up immediately.
       queryClient.invalidateQueries({ queryKey: ["branding"] });
       toast({
-        title: "Company Profile Updated",
-        description: "Your company name and logo have been saved.",
+        title: "Company Logo Updated",
+        description: "Your company logo has been saved.",
       });
     } catch (error) {
       console.error("Error saving company profile:", error);
@@ -381,7 +382,10 @@ export function AccountSettings() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="company">Company</Label>
-              <Input id="company" defaultValue={profile?.company || ""} placeholder="Your Company" />
+              <Input id="company" value={profile?.company || ""} placeholder="Your Company" disabled readOnly />
+              <p className="text-xs text-muted-foreground">
+                Locked — your agents' logins are tied to this company name and it cannot be changed.
+              </p>
             </div>
           </div>
           <Button className="gradient-primary">Save Changes</Button>
@@ -397,7 +401,8 @@ export function AccountSettings() {
               Company Profile
             </CardTitle>
             <CardDescription>
-              Set your company name and logo. Your logo appears in the navigation bar.
+              Update your company logo. Your logo appears in the navigation bar. The company
+              name is fixed because your agents' logins are tied to it.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -406,9 +411,13 @@ export function AccountSettings() {
               <Input
                 id="companyName"
                 value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
                 placeholder="Your Company"
+                disabled
+                readOnly
               />
+              <p className="text-xs text-muted-foreground">
+                Locked — changing this would break the sign-in domain your agents use.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="companyLogo">Company Logo</Label>

@@ -3,11 +3,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2, Phone, CheckCircle, XCircle, Users, Clock, Send } from "lucide-react";
 import { format, isToday, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import { LeadsFilters, LeadsFilterState } from "./LeadsFilters";
 import { useLeads, useProfiles, useApiConfigurations } from "@/hooks/useAdminData";
 import { ResponseViewDialog } from "./ResponseViewDialog";
+
+// One call attempt against a single campaign, with the data that was passed to it.
+interface CampaignDetail {
+  leadId: string;
+  configId: string;
+  name: string;
+  provider: string | null;
+  mode: string | null;
+  publisherId: string | null;
+  callerNumber: string;
+  callerState: string;
+  callerZip: string;
+  status: string;
+  returnedDid: string | null;
+  createdAt: string;
+}
+
 interface LeadWithAgent {
   id: string;
   caller_number: string;
@@ -26,7 +44,88 @@ interface LeadWithAgent {
   external_lead_id: string | null;
   submission_stage: "ping" | "posted" | "complete" | "pending";
   campaign_count: number;
+  campaigns: CampaignDetail[];
 }
+
+// Campaign column: shows the distinct campaigns this submission was called on and,
+// in a popover, the data passed to each call (Pub ID, Caller ID, State, Zip, DID).
+const CampaignCell = memo(({
+  campaigns,
+  formatPhoneNumber,
+}: {
+  campaigns: CampaignDetail[];
+  formatPhoneNumber: (phone: string) => string;
+}) => {
+  if (campaigns.length === 0) {
+    return (
+      <Badge variant="secondary" className="text-xs">
+        Legacy/Direct
+      </Badge>
+    );
+  }
+
+  // Distinct campaigns (a submission may hit the same campaign more than once on retry).
+  const distinct = Array.from(new Map(campaigns.map((c) => [c.configId, c])).values());
+  const extraCalls = campaigns.length - distinct.length;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className="flex flex-col items-start gap-1 text-left hover:opacity-80">
+          <span className="flex flex-wrap items-center gap-1">
+            {distinct.slice(0, 2).map((c) => (
+              <Badge key={c.configId} variant="outline" className="text-xs bg-primary/10 border-primary/30">
+                {c.name}
+              </Badge>
+            ))}
+            {distinct.length > 2 && (
+              <Badge variant="secondary" className="text-xs">+{distinct.length - 2}</Badge>
+            )}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {distinct.length} campaign{distinct.length > 1 ? "s" : ""}
+            {extraCalls > 0 ? ` • ${campaigns.length} calls` : ""}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 max-h-96 overflow-y-auto p-3">
+        <p className="text-xs font-semibold mb-2">
+          {campaigns.length} call{campaigns.length > 1 ? "s" : ""} across {distinct.length} campaign
+          {distinct.length > 1 ? "s" : ""}
+        </p>
+        <div className="space-y-2">
+          {campaigns.map((c) => (
+            <div key={c.leadId} className="rounded-md border border-border p-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium truncate">{c.name}</span>
+                {c.status === "success" ? (
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                ) : c.status === "pending" ? (
+                  <Clock className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
+                )}
+              </div>
+              {(c.provider || c.mode) && (
+                <div className="text-[10px] text-muted-foreground">
+                  {[c.provider, c.mode].filter(Boolean).join(" / ")}
+                </div>
+              )}
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
+                <span>Pub ID: <span className="font-mono text-foreground">{c.publisherId || "—"}</span></span>
+                <span>Caller: <span className="font-mono text-foreground">{formatPhoneNumber(c.callerNumber)}</span></span>
+                <span>State: <span className="text-foreground">{c.callerState}</span></span>
+                <span>Zip: <span className="text-foreground">{c.callerZip}</span></span>
+                <span className="col-span-2">DID: <span className="font-mono text-foreground">{c.returnedDid || "—"}</span></span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+});
+CampaignCell.displayName = "CampaignCell";
 
 // Memoized table row
 const LeadTableRow = memo(({ 
@@ -49,15 +148,7 @@ const LeadTableRow = memo(({
       </div>
     </TableCell>
     <TableCell>
-      {lead.api_name ? (
-        <Badge variant="outline" className="text-xs bg-primary/10 border-primary/30">
-          {lead.api_name}
-        </Badge>
-      ) : (
-        <Badge variant="secondary" className="text-xs">
-          Legacy/Direct
-        </Badge>
-      )}
+      <CampaignCell campaigns={lead.campaigns} formatPhoneNumber={formatPhoneNumber} />
     </TableCell>
     <TableCell className="font-mono">
       {formatPhoneNumber(lead.caller_number)}
@@ -164,8 +255,8 @@ export function LeadsManagement() {
     [profiles]
   );
 
-  const apiConfigMap = useMemo(() => 
-    new Map(apiConfigs?.map(c => [c.id, c.name]) || []),
+  const apiConfigMap = useMemo(() =>
+    new Map(apiConfigs?.map(c => [c.id, c]) || []),
     [apiConfigs]
   );
 
@@ -197,6 +288,7 @@ export function LeadsManagement() {
           external_lead_id: lead.external_lead_id,
           submission_stage: "pending",
           campaign_count: 0,
+          campaigns: [],
         };
         map.set(key, g);
       }
@@ -206,6 +298,21 @@ export function LeadsManagement() {
       }
       if (lead.api_configuration_id) {
         g.campaign_count += 1;
+        const cfg = apiConfigMap.get(lead.api_configuration_id);
+        g.campaigns.push({
+          leadId: lead.id,
+          configId: lead.api_configuration_id,
+          name: cfg?.name || "Unknown Campaign",
+          provider: cfg?.api_provider || null,
+          mode: cfg?.api_mode || null,
+          publisherId: cfg?.publisher_id || null,
+          callerNumber: lead.caller_number,
+          callerState: lead.caller_state,
+          callerZip: lead.caller_zip,
+          status: lead.status,
+          returnedDid: lead.returned_did,
+          createdAt: lead.created_at,
+        });
         if (lead.status === "success" && lead.returned_did && !g.returned_did) {
           g.returned_did = lead.returned_did;
         }
@@ -213,14 +320,14 @@ export function LeadsManagement() {
           g.status = "success";
           g.submission_stage = "complete";
           g.api_configuration_id = lead.api_configuration_id;
-          g.api_name = apiConfigMap.get(lead.api_configuration_id) || null;
+          g.api_name = cfg?.name || null;
           g.api_response = lead.api_response as Record<string, unknown> | null;
           g.ping_response = lead.ping_response as Record<string, unknown> | null;
         } else if (g.status !== "success") {
           g.status = "failed";
           g.submission_stage = "complete";
           g.api_configuration_id = lead.api_configuration_id;
-          g.api_name = apiConfigMap.get(lead.api_configuration_id) || null;
+          g.api_name = cfg?.name || null;
           g.api_response = lead.api_response as Record<string, unknown> | null;
           g.ping_response = lead.ping_response as Record<string, unknown> | null;
         }
