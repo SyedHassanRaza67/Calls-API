@@ -150,7 +150,7 @@ export function useActiveApiConfigurations() {
     queryKey: ["api_configurations", "active", user?.id, isAdmin, isSuperAdmin],
     queryFn: async () => {
       // Server already scopes configs to ones this user may see (owner / assigned / managing admin).
-      const all = await api.get<Array<{ id: string; name: string; api_mode: "rtb" | "ping-post" | "ping"; trackdrive_number: string | null; notes: string | null; custom_fields: any[] | null; buyer: string | null; category: string | null; sub_name: string | null; assigned_agents: string[] | null; created_by: string | null; is_active?: boolean }>>(
+      const all = await api.get<Array<{ id: string; name: string; api_mode: "rtb" | "ping-post" | "ping"; trackdrive_number: string | null; notes: string | null; custom_fields: any[] | null; buyer: string | null; category: string | null; sub_name: string | null; campaign_section: string | null; assigned_agents: string[] | null; created_by: string | null; is_active?: boolean }>>(
         "/api/api-configurations"
       );
       const rows = (all ?? [])

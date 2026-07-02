@@ -305,7 +305,10 @@ export function ApiConfigurations() {
   const [isTestResultOpen, setIsTestResultOpen] = useState(false);
 
 
-  // Campaign name parts
+  // Campaign Names — the section an API belongs to (groups APIs on the agent call screen)
+  const [campaignSection, setCampaignSection] = useState("");
+  const [campaignSectionCustom, setCampaignSectionCustom] = useState("");
+  // Name parts (display identifier, e.g. "D3 HS Bathroom" — independent of Campaign Names)
   const [namePrefix, setNamePrefix] = useState("");
   const [namePrefixCustom, setNamePrefixCustom] = useState("");
   const [nameCategory, setNameCategory] = useState("");
@@ -372,6 +375,16 @@ export function ApiConfigurations() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [parsedNames, nameCategory]);
 
+  const existingCampaignSections = useMemo(() => {
+    const set = new Set<string>();
+    (configs ?? []).forEach((c: any) => {
+      const s = (c.campaign_section || "").trim();
+      if (s) set.add(s);
+    });
+    if (campaignSection && campaignSection !== "__custom__") set.add(campaignSection);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [configs, campaignSection]);
+
   // Compose full name from parts
   const composeCampaignName = (prefix: string, category: string, customCat: string, sub: string) => {
     const cat = category === "__custom__" ? customCat : category;
@@ -428,6 +441,22 @@ export function ApiConfigurations() {
     snapshotScroll();
     if (config) {
       setEditingConfig(config);
+
+      // Campaign Names section (independent field, no parsing)
+      const savedSection: string = (config.campaign_section || "").trim();
+      if (savedSection) {
+        if (existingCampaignSections.includes(savedSection)) {
+          setCampaignSection(savedSection);
+          setCampaignSectionCustom("");
+        } else {
+          setCampaignSection("__custom__");
+          setCampaignSectionCustom(savedSection);
+        }
+      } else {
+        setCampaignSection("");
+        setCampaignSectionCustom("");
+      }
+
       const savedCategory: string = (config.category || "").trim();
       if (savedCategory) {
         // Category/sub-name were saved explicitly — use them directly, no re-parsing.
@@ -504,6 +533,8 @@ export function ApiConfigurations() {
     } else {
       setEditingConfig(null);
       setFormData(initialFormData);
+      setCampaignSection("");
+      setCampaignSectionCustom("");
       setNamePrefix("");
       setNamePrefixCustom("");
       setNameCategory("");
@@ -655,8 +686,13 @@ export function ApiConfigurations() {
   };
 
   const handleSave = async () => {
+    const effectiveCampaignSection = (campaignSection === "__custom__" ? campaignSectionCustom : campaignSection).trim();
+    if (!effectiveCampaignSection) {
+      toast({ title: "Error", description: "Campaign Names is required", variant: "destructive" });
+      return;
+    }
     if (!formData.name.trim()) {
-      toast({ title: "Error", description: "Campaign name is required", variant: "destructive" });
+      toast({ title: "Error", description: "Name is required", variant: "destructive" });
       return;
     }
     if (!formData.ping_url.trim() && formData.api_mode !== "rtb") {
@@ -678,6 +714,7 @@ export function ApiConfigurations() {
 
       const dataToSave = {
         name: formData.name.trim(),
+        campaign_section: effectiveCampaignSection,
         api_key: formData.api_key.trim() || null,
         publisher_id: formData.publisher_id.trim() || null,
         is_active: formData.is_active,
@@ -761,6 +798,7 @@ export function ApiConfigurations() {
         buyer: config.buyer || null,
         category: config.category || null,
         sub_name: config.sub_name || null,
+        campaign_section: config.campaign_section || null,
         created_by: user?.id,
         is_active: false,
       });
@@ -848,9 +886,33 @@ export function ApiConfigurations() {
               <div className="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col gap-3 mt-1">
                 {/* Campaign / Request Mode / URL */}
                 <div className="space-y-3">
-                {/* Campaign Name (3-part) */}
+                {/* Campaign Names — the section this API belongs to (groups APIs on the agent call screen) */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Campaign Name *</Label>
+                  <Label className="text-xs">Campaign Names *</Label>
+                  <Select value={campaignSection} onValueChange={(val) => {
+                    setCampaignSection(val);
+                    if (val !== "__custom__") setCampaignSectionCustom("");
+                  }}>
+                    <SelectTrigger><SelectValue placeholder="Select a campaign" /></SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      <SelectItem value="__custom__">+ Custom…</SelectItem>
+                      {existingCampaignSections.map(s => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {campaignSection === "__custom__" && (
+                    <Input
+                      placeholder="Enter new campaign name (e.g. Auto Insurance)"
+                      value={campaignSectionCustom}
+                      onChange={(e) => setCampaignSectionCustom(e.target.value)}
+                    />
+                  )}
+                </div>
+
+                {/* Name (3-part) */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Name *</Label>
                   <div className="grid grid-cols-3 gap-2">
                     <Select value={namePrefix} onValueChange={(val) => {
                       setNamePrefix(val);
@@ -871,7 +933,7 @@ export function ApiConfigurations() {
                       const effectivePrefix = namePrefix === "__custom__" ? namePrefixCustom : namePrefix;
                       setFormData({ ...formData, name: composeCampaignName(effectivePrefix, val, customVal, nameSubname) });
                     }}>
-                      <SelectTrigger><SelectValue placeholder="Campaign Name" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
                       <SelectContent className="max-h-60">
                         <SelectItem value="__custom__">+ Custom…</SelectItem>
                         {existingCategories.map(c => (
@@ -901,7 +963,7 @@ export function ApiConfigurations() {
                   )}
                   {nameCategory === "__custom__" && (
                     <Input
-                      placeholder="Enter custom campaign name"
+                      placeholder="Enter custom category"
                       value={nameCategoryCustom}
                       onChange={(e) => {
                         setNameCategoryCustom(e.target.value);

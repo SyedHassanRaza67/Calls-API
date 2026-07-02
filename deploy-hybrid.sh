@@ -20,7 +20,7 @@
 # Optional overrides:
 #   WEBROOT=/var/www/callsapi   # where system nginx serves the SPA from
 #   NODE_IMAGE=node:20-alpine   # image used to build the SPA
-#   REQUIRED_MIGRATION=008_api_configuration_category.sql   # migration the new backend needs
+#   REQUIRED_MIGRATION=009_campaign_section.sql   # migration the new backend needs
 #
 # Requires: git, Docker Engine + the Compose v2 plugin, write access to WEBROOT.
 
@@ -31,7 +31,7 @@ set -eu
 PROJECT="calls-api"
 WEBROOT="${WEBROOT:-/var/www/callsapi}"
 NODE_IMAGE="${NODE_IMAGE:-node:20-alpine}"
-REQUIRED_MIGRATION="${REQUIRED_MIGRATION:-008_api_configuration_category.sql}"
+REQUIRED_MIGRATION="${REQUIRED_MIGRATION:-009_campaign_section.sql}"
 
 ts()  { date +%Y%m%d_%H%M%S; }
 log() { echo "==> $*"; }

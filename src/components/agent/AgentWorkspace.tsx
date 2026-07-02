@@ -199,7 +199,7 @@ function deriveNameParts(config: any): { prefix: string; category: string; sub: 
 function groupBySection(items: any[]): { section: string; items: any[] }[] {
   const groups = new Map<string, any[]>();
   for (const c of items) {
-    const key = (c.category && String(c.category).trim()) || "Other";
+    const key = (c.campaign_section && String(c.campaign_section).trim()) || "Other";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(c);
   }
