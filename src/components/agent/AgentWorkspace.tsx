@@ -592,9 +592,10 @@ export function AgentWorkspace() {
           const combinedRaw = { ping: pingRaw, post: postRaw };
 
           const postHttpStatus = postData?.http_status as number | undefined;
+          const postFailFallback = postData?.ok === false ? "Post failed" : "Post succeeded but no DID returned";
           const result: CampaignResult = did
             ? { status: "success", did: String(did), raw: combinedRaw, httpStatus: postHttpStatus }
-            : { status: "failed", error: "Post succeeded but no DID returned", raw: combinedRaw, httpStatus: postHttpStatus };
+            : { status: "failed", error: toErrorString(postData?.error, postFailFallback), raw: combinedRaw, httpStatus: postHttpStatus };
           updateSubmission(submissionId, campaignId, result);
           showResultDialog(result);
 

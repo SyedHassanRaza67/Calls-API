@@ -85,6 +85,26 @@ function setByPath(obj: Record<string, unknown>, path: string, value: unknown): 
 }
 
 /**
+ * Sets a custom field's value at its dot-path. A key ending in "[]" (e.g.
+ * "data.quoteRequest.item.drivers[]") signals the value is a JSON array literal
+ * (typed by the admin, e.g. `[{"birthDate":"1990-01-01", ...}]`) rather than a
+ * plain string — needed for providers like QuoteWizard whose schema requires
+ * real arrays (drivers/vehicles) that dot-path objects alone can't express.
+ */
+function setFieldValue(obj: Record<string, unknown>, key: string, rawValue: string): void {
+  if (key.endsWith("[]")) {
+    const path = key.slice(0, -2);
+    try {
+      setByPath(obj, path, JSON.parse(rawValue));
+      return;
+    } catch {
+      // Fall through and store as a plain string if it isn't valid JSON.
+    }
+  }
+  setByPath(obj, key, rawValue);
+}
+
+/**
  * Read the first matching key from an object case-insensitively. Lets the
  * generic ping/post engine understand providers that use PascalCase response
  * fields (e.g. PX: Success / Payout / TransactionId) without a dedicated adapter.
@@ -703,7 +723,7 @@ export async function runPingPost(
       if (hasTemplates || nonMetaFields.length > 0) {
         pingBody = {};
         for (const field of nonMetaFields) {
-          setByPath(pingBody, field.key, resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields));
+          setFieldValue(pingBody, field.key, resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields));
         }
       } else {
         pingBody = {
@@ -793,12 +813,17 @@ export async function runPingPost(
       const rawBidVal = ciGet(pingData, "bid", "price", "payout", "retreaver_payout");
       const rawBid = rawBidVal ?? 0;
       bidAmount = typeof rawBid === "string" ? parseFloat(rawBid) || 0 : (typeof rawBid === "number" ? rawBid : 0);
-      if (successField !== undefined) {
+      // An explicit rejection status is authoritative even if a "bid" field is present
+      // (e.g. QuoteWizard returns {"status":"Rejected","bid":0} — bid:0 must not read as a win).
+      const negativeStatuses = ["rejected", "declined", "denied", "no-bid", "nobid", "error", "failed"];
+      if (negativeStatuses.includes(statusVal)) {
+        hasBid = false;
+      } else if (successField !== undefined) {
         // An explicit success/accepted flag is authoritative when present.
         hasBid = successField === true || successField === "true";
       } else {
         hasBid =
-          ["reserved", "ok", "accepted"].includes(statusVal) || rawBidVal !== undefined;
+          ["reserved", "ok", "accepted"].includes(statusVal) || (rawBidVal !== undefined && bidAmount > 0);
       }
     }
 
@@ -951,7 +976,7 @@ export async function runPingPost(
         postBody = {};
         for (const field of nonMetaFields) {
           if (field.ask_agent && agent_fields && agent_fields[field.key] !== undefined) {
-            postBody[field.key] = agent_fields[field.key];
+            setFieldValue(postBody, field.key, agent_fields[field.key]);
             continue;
           }
           let val = field.value || "";
@@ -966,7 +991,7 @@ export async function runPingPost(
           val = val.replace(/\{\{phone_raw\}\}/gi, (formattedNumber || "").replace(/^\+/, ""));
           val = val.replace(/\{\{state\}\}/gi, caller_state || "");
           val = val.replace(/\{\{zip\}\}/gi, caller_zip || "");
-          setByPath(postBody, field.key, val);
+          setFieldValue(postBody, field.key, val);
         }
         if (!hasExplicitStages && external_lead_id && !postBody.token && !postBody.lead_id && !postBody.call_token) {
           postBody.call_token = external_lead_id;
@@ -1052,7 +1077,23 @@ export async function runPingPost(
     const postSuccessField = ciGet(postData, "success", "accepted");
     const postSuccess = postSuccessField === true || postSuccessField === "true";
     const fallbackDid = (apiConfig.trackdrive_number as string | null | undefined) || "";
-    const postErr = ciGet(postData, "error");
+    const postErr = ciGet(postData, "error", "rejectionReason");
+
+    // An explicit rejection status is authoritative even if a stray number-ish
+    // field is present (e.g. QuoteWizard returns {"status":"Rejected","phoneNumber":null}).
+    const postStatusVal = String(ciGet(postData, "status") ?? "").toLowerCase();
+    if (["rejected", "declined", "denied", "error", "failed"].includes(postStatusVal)) {
+      return {
+        status: 200,
+        body: {
+          ok: false,
+          action: "post",
+          error: (postErr as string) || `Post ${postStatusVal}`,
+          raw: postData,
+          http_status: postUpstreamStatus,
+        },
+      };
+    }
 
     if (trackingNumber || postSuccess) {
       const finalDid = trackingNumber ? String(trackingNumber) : fallbackDid;
