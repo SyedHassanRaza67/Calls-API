@@ -172,14 +172,54 @@ function buyerSortKey(name: string): [number, number, string] {
   return [1, 0, name.toLowerCase()];
 }
 
-function groupAndSortConfigs(configs: any[]): { category: string; items: any[] }[] {
+// Legacy fallback split for configs saved before `category`/`sub_name` existed as real columns.
+const LEGACY_KNOWN_CATEGORIES = ["Auto Insurance","Home Insurance","Health Insurance","Life Insurance","Home Warranty","Home Security","Mass Tort","Pest Control","Walk-in Tub","Water Damage"];
+
+function deriveNameParts(config: any): { prefix: string; category: string; sub: string } {
+  const match = String(config.name || "").match(/^(D\d+)\s+(.+?)(?:\s+(.+))?$/);
+  const prefix = match ? match[1] : "";
+  const savedCategory = (config.category && String(config.category).trim()) || "";
+  if (savedCategory) return { prefix, category: savedCategory, sub: (config.sub_name || "").trim() };
+  if (!match) return { prefix: "", category: config.name || "", sub: "" };
+  const [, , service, sub] = match;
+  let category = service;
+  let subName = sub || "";
+  if (sub) {
+    const twoWord = `${service} ${sub.split(" ")[0]}`;
+    if (LEGACY_KNOWN_CATEGORIES.includes(twoWord)) {
+      category = twoWord;
+      subName = sub.split(" ").slice(1).join(" ");
+    } else {
+      subName = sub;
+    }
+  }
+  return { prefix, category, sub: subName };
+}
+
+function groupBySection(items: any[]): { section: string; items: any[] }[] {
+  const groups = new Map<string, any[]>();
+  for (const c of items) {
+    const key = (c.category && String(c.category).trim()) || "Other";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(c);
+  }
+  return Array.from(groups.entries())
+    .map(([section, items]) => ({ section, items }))
+    .sort((a, b) => {
+      if (a.section === "Other") return 1;
+      if (b.section === "Other") return -1;
+      return a.section.localeCompare(b.section);
+    });
+}
+
+function groupAndSortConfigs(configs: any[]): { category: string; items: any[]; sections: { section: string; items: any[] }[] }[] {
   const groups = new Map<string, any[]>();
   for (const c of configs) {
     const key = (c.buyer && String(c.buyer).trim()) || "Unassigned";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(c);
   }
-  const entries = Array.from(groups.entries()).map(([category, items]) => ({ category, items }));
+  const entries = Array.from(groups.entries()).map(([category, items]) => ({ category, items, sections: groupBySection(items) }));
   entries.sort((a, b) => {
     const ka = buyerSortKey(a.category);
     const kb = buyerSortKey(b.category);
@@ -196,6 +236,7 @@ const CampaignButton = memo(function CampaignButton({ config, result, onTrigger,
   const httpLabel = result.httpStatus
     ? `${result.httpStatus} ${result.httpStatus >= 200 && result.httpStatus < 300 ? "OK" : result.httpStatus >= 400 && result.httpStatus < 500 ? "Err" : result.httpStatus >= 500 ? "Err" : ""}`
     : null;
+  const parts = deriveNameParts(config);
 
   return (
     <button
@@ -220,27 +261,8 @@ const CampaignButton = memo(function CampaignButton({ config, result, onTrigger,
       {result.status === "loading" && <Loader2 className="h-2.5 w-2.5 animate-spin flex-shrink-0" />}
       {result.status === "idle" && <PhoneCall className="h-2.5 w-2.5 flex-shrink-0" />}
       <span className="truncate flex flex-col leading-tight">
-        {(() => {
-          const match = config.name.match(/^(D\d+)\s+(.+?)(?:\s+(.+))?$/);
-          if (!match) return <span>{config.name}</span>;
-          const [, prefix, service, sub] = match;
-          const knownCategories = ["Auto Insurance","Home Insurance","Health Insurance","Life Insurance","Home Warranty","Home Security","Mass Tort","Pest Control","Walk-in Tub","Water Damage"];
-          let serviceName = service;
-          let subName = sub || "";
-          if (sub) {
-            const twoWord = `${service} ${sub.split(" ")[0]}`;
-            if (knownCategories.includes(twoWord)) {
-              serviceName = twoWord;
-              subName = sub.split(" ").slice(1).join(" ");
-            } else {
-              subName = sub;
-            }
-          }
-          return <>
-            <span className="font-bold">{prefix} {serviceName}</span>
-            {subName && <span className="text-[9px] opacity-60">{subName}</span>}
-          </>;
-        })()}
+        <span className="font-bold">{[parts.prefix, parts.category].filter(Boolean).join(" ") || config.name}</span>
+        {parts.sub && <span className="text-[9px] opacity-60">{parts.sub}</span>}
       </span>
       {httpLabel && (
         <span className={`text-[8px] font-mono px-1 py-0.5 rounded whitespace-nowrap ${
@@ -270,7 +292,61 @@ const CampaignButton = memo(function CampaignButton({ config, result, onTrigger,
   );
 });
 
-/* Full-page campaign overlay — shows only API names grouped by category */
+/* One campaign "section" (e.g. "Auto Insurance") — collapsed by default, expands to show its API buttons */
+const CampaignSection = memo(function CampaignSection({
+  section, items, sub, forceExpanded, onTriggerCampaign, onUpdateSubmission, onOpenResponse,
+}: {
+  section: string;
+  items: any[];
+  sub: PersistedSubmission;
+  forceExpanded: boolean;
+  onTriggerCampaign: (submissionId: string, campaignId: string, mode: any) => void;
+  onUpdateSubmission: (submissionId: string, campaignId: string, result: CampaignResult) => void;
+  onOpenResponse: (dialog: ResponseDialogState) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isOpen = expanded || forceExpanded;
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 py-0.5 w-full text-left"
+      >
+        {isOpen ? (
+          <ChevronDown className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+        )}
+        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{section}</span>
+        <span className="text-[9px] text-muted-foreground/60">({items.length})</span>
+        <div className="flex-1 h-px bg-border/50" />
+      </button>
+      {isOpen && (
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1 pb-1 pl-4">
+          {items.map((config: any) => {
+            const result = sub.campaignResults[config.id] || { status: "idle" as const };
+            return (
+              <CampaignButton
+                key={config.id}
+                config={config}
+                result={result}
+                onTrigger={() => onTriggerCampaign(sub.id, config.id, config.api_mode)}
+                onRetry={() => {
+                  onUpdateSubmission(sub.id, config.id, { status: "idle" });
+                  setTimeout(() => onTriggerCampaign(sub.id, config.id, config.api_mode), 50);
+                }}
+                onOpenResponse={() => onOpenResponse({ open: true, campaignName: config.name, result, did: result.did, forwardingNumber: config.trackdrive_number || undefined, notes: (config as any).notes || undefined, callerNumber: sub.callerNumber })}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+/* Full-page campaign overlay — shows API names grouped by buyer, then by campaign section */
 const CampaignOverlay = memo(function CampaignOverlay({
   sub, sortedConfigs, onClose, onTriggerCampaign, onUpdateSubmission, onOpenResponse,
 }: {
@@ -323,30 +399,26 @@ const CampaignOverlay = memo(function CampaignOverlay({
           {groupedConfigs.length === 0 ? (
             <p className="text-xs text-muted-foreground italic py-4 text-center">No campaigns match your search.</p>
           ) : (
-            groupedConfigs.map(({ category, items }) => (
+            groupedConfigs.map(({ category, items, sections }) => (
               <div key={category}>
                 <div className="flex items-center gap-2 py-0.5">
                   <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{category}</span>
                   <span className="text-[9px] text-muted-foreground/60">({items.length})</span>
                   <div className="flex-1 h-px bg-border/50" />
                 </div>
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1 pb-1">
-                  {items.map((config: any) => {
-                    const result = sub.campaignResults[config.id] || { status: "idle" as const };
-                    return (
-                      <CampaignButton
-                        key={config.id}
-                        config={config}
-                        result={result}
-                        onTrigger={() => onTriggerCampaign(sub.id, config.id, config.api_mode)}
-                        onRetry={() => {
-                          onUpdateSubmission(sub.id, config.id, { status: "idle" });
-                          setTimeout(() => onTriggerCampaign(sub.id, config.id, config.api_mode), 50);
-                        }}
-                        onOpenResponse={() => onOpenResponse({ open: true, campaignName: config.name, result, did: result.did, forwardingNumber: config.trackdrive_number || undefined, notes: (config as any).notes || undefined, callerNumber: sub.callerNumber })}
-                      />
-                    );
-                  })}
+                <div className="space-y-0.5">
+                  {sections.map(({ section, items: sectionItems }) => (
+                    <CampaignSection
+                      key={section}
+                      section={section}
+                      items={sectionItems}
+                      sub={sub}
+                      forceExpanded={!!campaignSearch}
+                      onTriggerCampaign={onTriggerCampaign}
+                      onUpdateSubmission={onUpdateSubmission}
+                      onOpenResponse={onOpenResponse}
+                    />
+                  ))}
                 </div>
               </div>
             ))

@@ -16,7 +16,7 @@ const SAFE_COLS = [
   "ping_url", "post_url", "is_active", "assigned_to", "assigned_agents",
   "created_by", "created_at", "updated_at", "custom_fields", "notes",
   "trackdrive_number", "trackdrive_number_id", "publisher_id",
-  "ping_id_source_key", "ping_id_post_field", "buyer",
+  "ping_id_source_key", "ping_id_post_field", "buyer", "category", "sub_name",
 ];
 
 /** Strip api_key from a row (safe projection for non-owners). */
@@ -82,6 +82,8 @@ const createSchema = z.object({
   custom_fields: z.any().optional(),
   notes: z.string().optional().nullable(),
   buyer: z.string().optional().nullable(),
+  category: z.string().optional().nullable(),
+  sub_name: z.string().optional().nullable(),
   trackdrive_number: z.string().optional().nullable(),
   trackdrive_number_id: z.string().optional().nullable(),
   ping_id_source_key: z.string().optional().nullable(),
@@ -104,7 +106,7 @@ router.post(
     const optional: (keyof typeof data)[] = [
       "name", "api_key", "publisher_id", "api_type", "api_provider", "api_mode",
       "http_method", "ping_url", "post_url", "is_active", "assigned_agents",
-      "custom_fields", "notes", "buyer", "trackdrive_number", "trackdrive_number_id",
+      "custom_fields", "notes", "buyer", "category", "sub_name", "trackdrive_number", "trackdrive_number_id",
       "ping_id_source_key", "ping_id_post_field",
     ];
     for (const key of optional) {

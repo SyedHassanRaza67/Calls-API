@@ -338,8 +338,10 @@ export function ApiConfigurations() {
     return (configs ?? []).map((c: any) => {
       const name = (c.name || "").trim();
       const m = name.match(/^(D\d+)\s*(.*)/);
+      const prefix = m ? m[1] : "";
+      const savedCategory = (c.category || "").trim();
+      if (savedCategory) return { prefix, category: savedCategory };
       if (!m) return { prefix: "", category: "" };
-      const prefix = m[1];
       const rest = m[2] || "";
       const foundCat = KNOWN_CATEGORIES.find(k => rest.startsWith(k));
       let category = "";
@@ -426,11 +428,27 @@ export function ApiConfigurations() {
     snapshotScroll();
     if (config) {
       setEditingConfig(config);
-      const parsed = parseCampaignName(config.name || "");
-      setNamePrefix(parsed.prefix);
-      setNameCategory(parsed.category);
-      setNameCategoryCustom(parsed.customCat);
-      setNameSubname(parsed.sub);
+      const savedCategory: string = (config.category || "").trim();
+      if (savedCategory) {
+        // Category/sub-name were saved explicitly — use them directly, no re-parsing.
+        const prefixMatch = (config.name || "").match(/^(D\d+)/);
+        setNamePrefix(prefixMatch ? prefixMatch[1] : "D1");
+        if (existingCategories.includes(savedCategory)) {
+          setNameCategory(savedCategory);
+          setNameCategoryCustom("");
+        } else {
+          setNameCategory("__custom__");
+          setNameCategoryCustom(savedCategory);
+        }
+        setNameSubname((config.sub_name || "").trim());
+      } else {
+        // Legacy row with no saved category — fall back to best-effort parsing.
+        const parsed = parseCampaignName(config.name || "");
+        setNamePrefix(parsed.prefix);
+        setNameCategory(parsed.category);
+        setNameCategoryCustom(parsed.customCat);
+        setNameSubname(parsed.sub);
+      }
 
       // Buyer (independent column)
       const savedBuyer: string = (config.buyer || "").trim();
@@ -685,6 +703,8 @@ export function ApiConfigurations() {
           : null,
         assigned_agents: formData.assigned_agents || [],
         buyer: formData.buyer?.trim() || null,
+        category: (nameCategory === "__custom__" ? nameCategoryCustom : nameCategory).trim() || null,
+        sub_name: nameSubname.trim() || null,
         ping_id_source_key: formData.api_mode === "ping-post" ? (formData.ping_id_source_key.trim() || null) : null,
         ping_id_post_field: formData.api_mode === "ping-post" ? (formData.ping_id_post_field.trim() || null) : null,
       };
@@ -739,6 +759,8 @@ export function ApiConfigurations() {
         trackdrive_number: config.trackdrive_number,
         assigned_to: config.assigned_to,
         buyer: config.buyer || null,
+        category: config.category || null,
+        sub_name: config.sub_name || null,
         created_by: user?.id,
         is_active: false,
       });
