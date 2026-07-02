@@ -165,13 +165,6 @@ interface SubmissionRowProps {
   onOpenResponse: (dialog: ResponseDialogState) => void;
 }
 
-function buyerSortKey(name: string): [number, number, string] {
-  if (name === "Unassigned") return [2, 0, name];
-  const m = name.match(/^Buyer\s+(\d+)$/i);
-  if (m) return [0, parseInt(m[1], 10), name];
-  return [1, 0, name.toLowerCase()];
-}
-
 // Legacy fallback split for configs saved before `category`/`sub_name` existed as real columns.
 const LEGACY_KNOWN_CATEGORIES = ["Auto Insurance","Home Insurance","Health Insurance","Life Insurance","Home Warranty","Home Security","Mass Tort","Pest Control","Walk-in Tub","Water Damage"];
 
@@ -210,24 +203,6 @@ function groupBySection(items: any[]): { section: string; items: any[] }[] {
       if (b.section === "Other") return -1;
       return a.section.localeCompare(b.section);
     });
-}
-
-function groupAndSortConfigs(configs: any[]): { category: string; items: any[]; sections: { section: string; items: any[] }[] }[] {
-  const groups = new Map<string, any[]>();
-  for (const c of configs) {
-    const key = (c.buyer && String(c.buyer).trim()) || "Unassigned";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(c);
-  }
-  const entries = Array.from(groups.entries()).map(([category, items]) => ({ category, items, sections: groupBySection(items) }));
-  entries.sort((a, b) => {
-    const ka = buyerSortKey(a.category);
-    const kb = buyerSortKey(b.category);
-    if (ka[0] !== kb[0]) return ka[0] - kb[0];
-    if (ka[1] !== kb[1]) return ka[1] - kb[1];
-    return String(ka[2]).localeCompare(String(kb[2]));
-  });
-  return entries;
 }
 
 const CampaignButton = memo(function CampaignButton({ config, result, onTrigger, onRetry, onOpenResponse }: {
@@ -292,61 +267,7 @@ const CampaignButton = memo(function CampaignButton({ config, result, onTrigger,
   );
 });
 
-/* One campaign "section" (e.g. "Auto Insurance") — collapsed by default, expands to show its API buttons */
-const CampaignSection = memo(function CampaignSection({
-  section, items, sub, forceExpanded, onTriggerCampaign, onUpdateSubmission, onOpenResponse,
-}: {
-  section: string;
-  items: any[];
-  sub: PersistedSubmission;
-  forceExpanded: boolean;
-  onTriggerCampaign: (submissionId: string, campaignId: string, mode: any) => void;
-  onUpdateSubmission: (submissionId: string, campaignId: string, result: CampaignResult) => void;
-  onOpenResponse: (dialog: ResponseDialogState) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const isOpen = expanded || forceExpanded;
-
-  return (
-    <div>
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 py-0.5 w-full text-left"
-      >
-        {isOpen ? (
-          <ChevronDown className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-        ) : (
-          <ChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-        )}
-        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{section}</span>
-        <span className="text-[9px] text-muted-foreground/60">({items.length})</span>
-        <div className="flex-1 h-px bg-border/50" />
-      </button>
-      {isOpen && (
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1 pb-1 pl-4">
-          {items.map((config: any) => {
-            const result = sub.campaignResults[config.id] || { status: "idle" as const };
-            return (
-              <CampaignButton
-                key={config.id}
-                config={config}
-                result={result}
-                onTrigger={() => onTriggerCampaign(sub.id, config.id, config.api_mode)}
-                onRetry={() => {
-                  onUpdateSubmission(sub.id, config.id, { status: "idle" });
-                  setTimeout(() => onTriggerCampaign(sub.id, config.id, config.api_mode), 50);
-                }}
-                onOpenResponse={() => onOpenResponse({ open: true, campaignName: config.name, result, did: result.did, forwardingNumber: config.trackdrive_number || undefined, notes: (config as any).notes || undefined, callerNumber: sub.callerNumber })}
-              />
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-});
-
-/* Full-page campaign overlay — shows API names grouped by buyer, then by campaign section */
+/* Full-page campaign overlay — campaign sections as a fixed tab row; click a tab to see its APIs */
 const CampaignOverlay = memo(function CampaignOverlay({
   sub, sortedConfigs, onClose, onTriggerCampaign, onUpdateSubmission, onOpenResponse,
 }: {
@@ -358,70 +279,89 @@ const CampaignOverlay = memo(function CampaignOverlay({
   onOpenResponse: (dialog: ResponseDialogState) => void;
 }) {
   const [campaignSearch, setCampaignSearch] = useState("");
+  const [activeSection, setActiveSection] = useState<string | null>(null);
 
-  const groupedConfigs = useMemo(() => {
+  const sections = useMemo(() => {
     const filtered = campaignSearch
       ? sortedConfigs.filter((c: any) => c.name.toLowerCase().includes(campaignSearch.toLowerCase()))
       : sortedConfigs;
-    return groupAndSortConfigs(filtered);
+    return groupBySection(filtered);
   }, [sortedConfigs, campaignSearch]);
+
+  // Fall back to the first available tab whenever the current selection isn't in the (possibly search-filtered) list.
+  const effectiveSection = sections.some((s) => s.section === activeSection) ? activeSection : (sections[0]?.section ?? null);
+  const activeItems = sections.find((s) => s.section === effectiveSection)?.items ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background/95" onClick={onClose}>
       <div className="flex-1 overflow-auto" onClick={(e) => e.stopPropagation()}>
-        {/* Compact sticky header */}
-        <div className="sticky top-0 z-10 bg-primary border-b border-primary px-3 py-1.5 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <Phone className="h-3.5 w-3.5 text-primary-foreground flex-shrink-0" />
-            <span className="text-xs font-semibold text-primary-foreground whitespace-nowrap font-mono">{sub.callerNumber}</span>
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 border-primary-foreground/40 text-primary-foreground">{sub.callerState}</Badge>
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 border-primary-foreground/40 text-primary-foreground">{sub.callerZip}</Badge>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary-foreground/60" />
-              <input
-                type="text"
-                placeholder="Search..."
-                value={campaignSearch}
-                onChange={(e) => setCampaignSearch(e.target.value)}
-                className="h-6 w-32 rounded border border-primary-foreground/30 bg-primary-foreground/10 pl-7 pr-2 text-[11px] text-primary-foreground placeholder:text-primary-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary-foreground/40"
-              />
+        {/* Sticky header: caller info + search, and the fixed row of campaign section tabs */}
+        <div className="sticky top-0 z-10 bg-primary border-b border-primary">
+          <div className="px-3 py-1.5 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Phone className="h-3.5 w-3.5 text-primary-foreground flex-shrink-0" />
+              <span className="text-xs font-semibold text-primary-foreground whitespace-nowrap font-mono">{sub.callerNumber}</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 border-primary-foreground/40 text-primary-foreground">{sub.callerState}</Badge>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 border-primary-foreground/40 text-primary-foreground">{sub.callerZip}</Badge>
             </div>
-            <button onClick={onClose} className="p-1 rounded-md hover:bg-primary-foreground/10 transition-colors text-primary-foreground">
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-primary-foreground/60" />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={campaignSearch}
+                  onChange={(e) => setCampaignSearch(e.target.value)}
+                  className="h-6 w-32 rounded border border-primary-foreground/30 bg-primary-foreground/10 pl-7 pr-2 text-[11px] text-primary-foreground placeholder:text-primary-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary-foreground/40"
+                />
+              </div>
+              <button onClick={onClose} className="p-1 rounded-md hover:bg-primary-foreground/10 transition-colors text-primary-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
+          {sections.length > 0 && (
+            <div className="px-3 pb-2 flex items-center gap-1.5 flex-wrap">
+              {sections.map(({ section, items }) => (
+                <button
+                  key={section}
+                  onClick={() => setActiveSection(section)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                    section === effectiveSection
+                      ? "bg-white text-primary shadow-sm"
+                      : "bg-primary-foreground/10 text-primary-foreground/80 hover:bg-primary-foreground/20"
+                  }`}
+                >
+                  {section} <span className="opacity-70">({items.length})</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Campaign groups — ultra compact, minimal spacing */}
-        <div className="px-3 py-1.5 space-y-1">
-          {groupedConfigs.length === 0 ? (
+        {/* Active section's API buttons */}
+        <div className="px-3 py-3">
+          {sections.length === 0 ? (
             <p className="text-xs text-muted-foreground italic py-4 text-center">No campaigns match your search.</p>
           ) : (
-            groupedConfigs.map(({ category, items, sections }) => (
-              <div key={category}>
-                <div className="flex items-center gap-2 py-0.5">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{category}</span>
-                  <span className="text-[9px] text-muted-foreground/60">({items.length})</span>
-                  <div className="flex-1 h-px bg-border/50" />
-                </div>
-                <div className="space-y-0.5">
-                  {sections.map(({ section, items: sectionItems }) => (
-                    <CampaignSection
-                      key={section}
-                      section={section}
-                      items={sectionItems}
-                      sub={sub}
-                      forceExpanded={!!campaignSearch}
-                      onTriggerCampaign={onTriggerCampaign}
-                      onUpdateSubmission={onUpdateSubmission}
-                      onOpenResponse={onOpenResponse}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+              {activeItems.map((config: any) => {
+                const result = sub.campaignResults[config.id] || { status: "idle" as const };
+                return (
+                  <CampaignButton
+                    key={config.id}
+                    config={config}
+                    result={result}
+                    onTrigger={() => onTriggerCampaign(sub.id, config.id, config.api_mode)}
+                    onRetry={() => {
+                      onUpdateSubmission(sub.id, config.id, { status: "idle" });
+                      setTimeout(() => onTriggerCampaign(sub.id, config.id, config.api_mode), 50);
+                    }}
+                    onOpenResponse={() => onOpenResponse({ open: true, campaignName: config.name, result, did: result.did, forwardingNumber: config.trackdrive_number || undefined, notes: (config as any).notes || undefined, callerNumber: sub.callerNumber })}
+                  />
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
