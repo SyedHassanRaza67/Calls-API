@@ -993,7 +993,7 @@ export function ApiConfigurations() {
                         onClick={() => setFormData({ ...formData, api_mode: opt.v })}
                         className={`flex-1 h-8 text-xs font-medium rounded-md transition-colors ${
                           formData.api_mode === opt.v
-                            ? "bg-background text-foreground shadow-sm"
+                            ? "bg-primary text-primary-foreground shadow-sm"
                             : "text-muted-foreground hover:text-foreground"
                         }`}
                       >
