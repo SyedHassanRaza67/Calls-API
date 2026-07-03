@@ -96,7 +96,7 @@ export function Instructions() {
           <p>
             Each entry under <strong>APIs</strong> is a <strong>campaign</strong> — an outbound
             integration with a buyer. Campaigns support providers such as Retreaver, Ringba,
-            TrackDrive, LeadsPedia, and Service Direct.
+            TrackDrive, LeadsPedia, Service Direct, and QuoteWizard.
           </p>
 
           <div className="space-y-2">
@@ -144,6 +144,86 @@ export function Instructions() {
               <strong className="text-foreground">Always test a new campaign.</strong> Use the test
               action in the campaign dialog to send a sample caller and confirm you get a valid
               response and number before agents rely on it.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 3b. QuoteWizard campaigns */}
+      <Card className="bg-card/50 border-border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-primary" />
+            QuoteWizard Campaigns
+          </CardTitle>
+          <CardDescription>Insurance call campaigns (Auto, Home, Health/Medicare)</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm text-muted-foreground">
+          <p>
+            QuoteWizard buys insurance calls in three verticals — <strong>Auto</strong>,{" "}
+            <strong>Home</strong>, and <strong>Health/Medicare</strong>. Each campaignId they give you
+            is contracted for <em>one</em> vertical. The platform builds the full request JSON
+            automatically; you only supply the credentials and pick the right vertical.
+          </p>
+
+          <div className="space-y-2">
+            <h3 className="font-semibold text-foreground">Add a QuoteWizard campaign</h3>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>Click <strong>Add API</strong> and name the campaign.</li>
+              <li>
+                Choose <strong>Ping Only</strong> for consumer-initiated inbound calls (partial lead)
+                with the URL{" "}
+                <code className="px-1 bg-muted rounded text-xs">https://api.quotewizard.com/calls/v1/InboundPingPartialLead</code>,
+                or <strong>Ping / Post</strong> for warm/cold transfers (full lead, requires TCPA consent)
+                with the v2 FullLead endpoints.
+              </li>
+              <li>
+                A <strong>QuoteWizard Setup</strong> panel appears in the Params tab. Enter the{" "}
+                <strong>campaignId</strong> and <strong>Apikey</strong> QuoteWizard provided, and select
+                the <strong>Lead Type</strong> that matches what that campaignId was contracted for.
+              </li>
+              <li>Save and test — a successful ping returns a bid, a phone number, and <code className="px-1 bg-muted rounded text-xs">status: "Accepted"</code>.</li>
+            </ol>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="font-semibold text-foreground">Common rejection reasons</h3>
+            <ul className="list-disc list-inside space-y-1">
+              <li>
+                <strong>"Lead type not supported"</strong> — the selected Lead Type doesn&apos;t match the
+                vertical contracted for that campaignId. Fix it in the QuoteWizard Setup panel.
+              </li>
+              <li>
+                <strong>"Buyer validation violated"</strong> — no valid buyer matched. Usually the phone
+                number is invalid (test/fake numbers always fail — QuoteWizard checks for a real
+                area-code and prefix), the zip and state don&apos;t belong together, or no buyer is active
+                for that zip at that hour. Test with a <em>real caller number</em> and a matching
+                state + zip.
+              </li>
+              <li>
+                <strong>"DNC / Black list validation violated"</strong> — that caller&apos;s number is on a
+                do-not-call or block list. Not a configuration problem.
+              </li>
+              <li>
+                <strong>"Duplicate lead validation violated"</strong> — the same caller was pinged too
+                recently.
+              </li>
+            </ul>
+          </div>
+
+          <div className="p-3 bg-muted/30 rounded-lg border border-border">
+            <p className="text-xs">
+              <strong className="text-foreground">Timing matters:</strong> after an accepted ping the
+              call must be transferred to the returned number within <strong>60 seconds</strong>{" "}
+              (Ping/Post: post within 60s of the ping, then transfer). Full API reference:{" "}
+              <a
+                href="https://docs.quotewizard.com/calls/getpage?page=index"
+                target="_blank"
+                rel="noreferrer"
+                className="underline text-primary"
+              >
+                docs.quotewizard.com/calls
+              </a>
             </p>
           </div>
         </CardContent>
