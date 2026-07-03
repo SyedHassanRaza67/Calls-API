@@ -148,6 +148,97 @@ function resolveFieldValue(
   return val;
 }
 
+/**
+ * QuoteWizard requires the ping/post JSON to contain exactly one vertical
+ * object under data.quoteRequest.item — autoInsuranceQuoteRequest,
+ * homeInsuranceQuoteRequest or healthInsuranceQuoteRequest — matching the
+ * campaign's contracted vertical, otherwise it rejects with
+ * "Lead type not supported." (docs.quotewizard.com/calls).
+ */
+const QW_VERTICAL_KEYS = [
+  "autoInsuranceQuoteRequest",
+  "homeInsuranceQuoteRequest",
+  "healthInsuranceQuoteRequest",
+];
+
+function isQuoteWizardConfig(apiConfig: any): boolean {
+  if ((apiConfig.api_provider || "") === "quotewizard") return true;
+  return [apiConfig.ping_url, apiConfig.post_url].some(
+    (u) => typeof u === "string" && u.toLowerCase().includes("quotewizard.com")
+  );
+}
+
+/**
+ * Builds the canonical QuoteWizard request body: auth + contact base, then the
+ * campaign's custom fields merged on top (dot-paths supported), then the
+ * vertical object selected by the _qw_lead_type meta field (auto|home|health)
+ * unless the custom fields already provided one. Defaults to "home" to
+ * preserve the behavior of pre-existing QuoteWizard campaigns.
+ */
+function buildQuoteWizardBody(
+  apiConfig: any,
+  formattedNumber: string,
+  caller_state: string,
+  caller_zip: string,
+  stage: "ping" | "post",
+  agentFields?: Record<string, string>,
+  rawDigits?: string
+): Record<string, unknown> {
+  const allFields = Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : [];
+  const customFields = allFields
+    .filter((f: any) => f.enabled !== false)
+    .filter((f: any) => (stage === "ping" ? f.stages?.ping !== false : f.stages?.post !== false))
+    .filter((f: any) => f.key && !f.key.startsWith("_"));
+
+  const campaignIdNum = parseInt(apiConfig.publisher_id);
+  const body: Record<string, unknown> = {
+    campaignId: Number.isFinite(campaignIdNum) ? campaignIdNum : undefined,
+    Apikey: apiConfig.api_key,
+    data: {
+      quoteRequest: {
+        item: {
+          contact: {
+            state: caller_state,
+            zipCode: caller_zip,
+            phoneNumbers: { primaryPhone: { phoneNumberValue: formattedNumber } },
+          },
+        },
+      },
+    },
+  };
+
+  for (const field of customFields) {
+    setFieldValue(
+      body,
+      field.key,
+      resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agentFields, rawDigits)
+    );
+  }
+
+  let item = getByPath(body, "data.quoteRequest.item") as Record<string, unknown> | undefined;
+  if (!item || typeof item !== "object") {
+    setByPath(body, "data.quoteRequest.item", {});
+    item = getByPath(body, "data.quoteRequest.item") as Record<string, unknown>;
+  }
+  if (!QW_VERTICAL_KEYS.some((k) => item![k] !== undefined)) {
+    const leadType = String(
+      allFields.find((f: any) => f.key === "_qw_lead_type")?.value || "home"
+    ).toLowerCase();
+    if (leadType === "auto") {
+      // companyName is required even on partial-lead pings: OTHER = insured,
+      // company unknown (use a custom field to override, e.g. UNKNOWN = uninsured).
+      item!.autoInsuranceQuoteRequest = {
+        insuranceProfile: { currentPolicy: { insuranceCompany: { companyName: "OTHER" } } },
+      };
+    } else if (leadType === "health" || leadType === "medicare") {
+      item!.healthInsuranceQuoteRequest = {};
+    } else {
+      item!.homeInsuranceQuoteRequest = {};
+    }
+  }
+  return body;
+}
+
 function normalizeLeadspediaFields(
   body: Record<string, unknown>,
   url: string
@@ -286,6 +377,10 @@ export async function runPingPost(
     apiProvider === "servicedirect" ||
     (typeof apiConfig.ping_url === "string" && apiConfig.ping_url.includes("servicedirect.com")) ||
     (typeof apiConfig.post_url === "string" && apiConfig.post_url.includes("servicedirect.com"));
+
+  // QuoteWizard — detected by provider or URL so campaigns saved with the
+  // default "custom" provider still get the required nested JSON schema.
+  const isQuoteWizard = isQuoteWizardConfig(apiConfig);
 
   // ── PING-ONLY ─────────────────────────────────────────────────────────
   if (action === "ping-only") {
@@ -440,23 +535,10 @@ export async function runPingPost(
 
     // POST request
     let requestBody: Record<string, unknown>;
-    if (apiProvider === "quotewizard") {
-      requestBody = {
-        campaignId: apiConfig.publisher_id ? parseInt(apiConfig.publisher_id) : undefined,
-        Apikey: apiConfig.api_key,
-        data: {
-          quoteRequest: {
-            item: {
-              contact: {
-                state: caller_state,
-                zipCode: caller_zip,
-                phoneNumbers: { primaryPhone: { phoneNumberValue: formattedNumber } },
-              },
-              homeInsuranceQuoteRequest: {},
-            },
-          },
-        },
-      };
+    if (isQuoteWizard) {
+      requestBody = buildQuoteWizardBody(
+        apiConfig, formattedNumber, caller_state, caller_zip, "ping", agent_fields, rawDigits
+      );
     } else if (apiProvider === "trackdrive") {
       const pingUrlParts = pingUrl.split("/");
       const vanityUri = pingUrlParts[pingUrlParts.length - 1]?.split("?")[0];
@@ -541,7 +623,7 @@ export async function runPingPost(
     }
     const postUpstreamStatus = response.status;
 
-    if (apiProvider === "quotewizard") {
+    if (isQuoteWizard) {
       const qwStatus = responseData.status as string | undefined;
       const isAccepted = qwStatus?.toLowerCase() === "accepted";
       const fallbackDid = apiConfig.trackdrive_number || null;
@@ -714,6 +796,10 @@ export async function runPingPost(
       if (vanityUri) pingBody.vanity_uri = vanityUri;
       if (apiConfig.trackdrive_number) pingBody.trackdrive_number = apiConfig.trackdrive_number.replace(/^\+/, "");
       if (apiConfig.trackdrive_number_id) pingBody.trackdrive_number_id = apiConfig.trackdrive_number_id;
+    } else if (isQuoteWizard) {
+      pingBody = buildQuoteWizardBody(
+        apiConfig, formattedNumber, caller_state, caller_zip, "ping", agent_fields, rawDigits
+      );
     } else {
       const customFields = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : [])
         .filter((f: any) => f.enabled !== false)
@@ -860,7 +946,7 @@ export async function runPingPost(
     } else {
       const errs = ciGet(pingData, "errors");
       const errMsg =
-        ciGet(pingData, "error", "message") ||
+        ciGet(pingData, "error", "message", "rejectionReason") ||
         (Array.isArray(errs) ? (errs as unknown[]).join(", ") : errs) ||
         "No buyer available";
       return {
@@ -958,6 +1044,11 @@ export async function runPingPost(
       postBody = { vanity_uri: vanityUri, ping_id: external_lead_id, caller_id: formattedNumber };
       if (apiConfig.publisher_id) postBody.traffic_source_id = apiConfig.publisher_id;
       if (apiConfig.trackdrive_number) postBody.trackdrive_number = apiConfig.trackdrive_number.replace(/^\+/, "");
+    } else if (isQuoteWizard) {
+      postBody = buildQuoteWizardBody(
+        apiConfig, formattedNumber, caller_state, caller_zip, "post", agent_fields, rawDigits
+      );
+      if (external_lead_id) postBody.pingID = external_lead_id;
     } else {
       const allCustomFields = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : []).filter(
         (f: any) => f.enabled !== false

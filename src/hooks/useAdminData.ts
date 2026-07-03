@@ -70,7 +70,7 @@ export interface ApiConfiguration {
   api_mode: "rtb" | "ping-post" | "ping";
   ping_url: string | null;
   post_url: string | null;
-  api_provider: "retreaver" | "trackdrive" | "ringba" | "custom";
+  api_provider: "retreaver" | "trackdrive" | "ringba" | "custom" | "quotewizard";
   trackdrive_number_id: string | null;
   trackdrive_number: string | null;
   http_method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | null;

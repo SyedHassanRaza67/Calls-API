@@ -1473,6 +1473,32 @@ export function ApiConfigurations() {
                     </Select>
                     <p className="text-[10px] text-muted-foreground">Applied to the <code className="font-mono">{"{{phone}}"}</code> token (and caller ID) before the request is sent.</p>
                   </div>
+
+                  {/* QuoteWizard lead type — must match the campaign's contracted vertical */}
+                  {(formData.api_provider === "quotewizard" ||
+                    formData.ping_url.toLowerCase().includes("quotewizard.com") ||
+                    formData.post_url.toLowerCase().includes("quotewizard.com")) && (
+                    <div className="space-y-1.5 mt-3 rounded-md border border-border p-2.5">
+                      <Label className="text-xs font-medium">QuoteWizard Lead Type (vertical)</Label>
+                      <Select
+                        value={formData.custom_fields.find(f => f.key === "_qw_lead_type")?.value || "home"}
+                        onValueChange={(value) => {
+                          const filtered = formData.custom_fields.filter(f => f.key !== "_qw_lead_type");
+                          setFormData({ ...formData, custom_fields: [...filtered, { key: "_qw_lead_type", value, enabled: true }] });
+                        }}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto — autoInsuranceQuoteRequest</SelectItem>
+                          <SelectItem value="home">Home — homeInsuranceQuoteRequest</SelectItem>
+                          <SelectItem value="health">Health / Medicare — healthInsuranceQuoteRequest</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[10px] text-muted-foreground">
+                        Must match the vertical QuoteWizard contracted for this campaignId, otherwise pings are rejected with "Lead type not supported".
+                      </p>
+                    </div>
+                  )}
                 </div>
                     </TabsContent>
                     <TabsContent value="mapping" className="p-3 mt-0 data-[state=inactive]:hidden">
