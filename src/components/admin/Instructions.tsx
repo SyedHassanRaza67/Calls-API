@@ -178,9 +178,15 @@ export function Instructions() {
                 with the v2 FullLead endpoints.
               </li>
               <li>
-                A <strong>QuoteWizard Setup</strong> panel appears in the Params tab. Enter the{" "}
-                <strong>campaignId</strong> and <strong>Apikey</strong> QuoteWizard provided, and select
-                the <strong>Lead Type</strong> that matches what that campaignId was contracted for.
+                In the <strong>Params</strong> tab add three parameter rows:{" "}
+                <code className="px-1 bg-muted rounded text-xs">campaignId</code> and{" "}
+                <code className="px-1 bg-muted rounded text-xs">Apikey</code> from QuoteWizard, plus{" "}
+                <code className="px-1 bg-muted rounded text-xs">_qw_lead_type</code> set to{" "}
+                <code className="px-1 bg-muted rounded text-xs">auto</code>,{" "}
+                <code className="px-1 bg-muted rounded text-xs">home</code>, or{" "}
+                <code className="px-1 bg-muted rounded text-xs">health</code> to match the vertical that
+                campaignId was contracted for. The platform builds the full nested JSON automatically and
+                adds caller phone, state and zip on every request.
               </li>
               <li>Save and test — a successful ping returns a bid, a phone number, and <code className="px-1 bg-muted rounded text-xs">status: "Accepted"</code>.</li>
             </ol>
@@ -190,8 +196,9 @@ export function Instructions() {
             <h3 className="font-semibold text-foreground">Common rejection reasons</h3>
             <ul className="list-disc list-inside space-y-1">
               <li>
-                <strong>"Lead type not supported"</strong> — the selected Lead Type doesn&apos;t match the
-                vertical contracted for that campaignId. Fix it in the QuoteWizard Setup panel.
+                <strong>"Lead type not supported"</strong> — the <code className="px-1 bg-muted rounded text-xs">_qw_lead_type</code>{" "}
+                parameter doesn&apos;t match the vertical contracted for that campaignId. Set it to the
+                correct <code className="px-1 bg-muted rounded text-xs">auto</code>/<code className="px-1 bg-muted rounded text-xs">home</code>/<code className="px-1 bg-muted rounded text-xs">health</code> value.
               </li>
               <li>
                 <strong>"Buyer validation violated"</strong> — no valid buyer matched. Usually the phone

@@ -831,13 +831,6 @@ export function ApiConfigurations() {
     return admin?.full_name || admin?.email || "Unknown";
   }, [adminUsers]);
 
-  // QuoteWizard campaigns get a guided setup panel: the backend builds their
-  // nested JSON schema automatically from campaignId / Apikey / lead type.
-  const isQuoteWizardCampaign =
-    formData.api_provider === "quotewizard" ||
-    formData.ping_url.toLowerCase().includes("quotewizard.com") ||
-    formData.post_url.toLowerCase().includes("quotewizard.com");
-
   const handleEditClick = useCallback((config: any) => handleOpenDialog(config), [handleOpenDialog]);
   const handleDeleteClick = useCallback((config: any) => {
     snapshotScroll();
@@ -1295,59 +1288,6 @@ export function ApiConfigurations() {
                       <TabsTrigger value="response" className="text-xs">Response</TabsTrigger>
                     </TabsList>
                     <TabsContent value="params" className="p-3 mt-0 data-[state=inactive]:hidden">
-                {/* QuoteWizard guided setup — shown whenever the URL points at quotewizard.com */}
-                {isQuoteWizardCampaign && (
-                  <div className="mb-3 space-y-2 rounded-md border border-blue-200 bg-blue-50/40 p-2.5">
-                    <Label className="text-xs font-semibold text-blue-900">QuoteWizard Setup</Label>
-                    <p className="text-[10px] text-muted-foreground">
-                      The full JSON (<code className="font-mono">data.quoteRequest…</code>) is built automatically —
-                      just fill in the three values from QuoteWizard. Caller phone, state and zip are added from the
-                      agent form on every request. No parameter rows are needed below.
-                    </p>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-[11px]">campaignId</Label>
-                        <Input
-                          placeholder="e.g. 2502"
-                          value={formData.publisher_id}
-                          onChange={(e) => setFormData({ ...formData, publisher_id: e.target.value.trim() })}
-                          className="h-7 text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px]">Apikey</Label>
-                        <Input
-                          placeholder="from QuoteWizard"
-                          value={formData.api_key}
-                          onChange={(e) => setFormData({ ...formData, api_key: e.target.value.trim() })}
-                          className="h-7 text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[11px]">Lead Type (vertical)</Label>
-                        <Select
-                          value={formData.custom_fields.find(f => f.key === "_qw_lead_type")?.value || "home"}
-                          onValueChange={(value) => {
-                            const filtered = formData.custom_fields.filter(f => f.key !== "_qw_lead_type");
-                            setFormData({ ...formData, custom_fields: [...filtered, { key: "_qw_lead_type", value, enabled: true }] });
-                          }}
-                        >
-                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="auto">Auto</SelectItem>
-                            <SelectItem value="home">Home</SelectItem>
-                            <SelectItem value="health">Health / Medicare</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">
-                      <strong className="text-foreground">Lead Type must match the vertical QuoteWizard contracted for this campaignId</strong> —
-                      a mismatch is rejected with "Lead type not supported". Extra fields (drivers, vehicles…) can still be
-                      added as parameter rows with dot-path keys, e.g. <code className="font-mono">data.quoteRequest.item.drivers[]</code>.
-                    </p>
-                  </div>
-                )}
                 {/* Key-Value rows with checkboxes */}
                 <div className="space-y-1.5">
                   <Label className="flex items-center gap-1.5 text-xs">
@@ -1368,7 +1308,7 @@ export function ApiConfigurations() {
                     </div>
                   )}
                   {/* Header row */}
-                  {formData.custom_fields.some(f => !f.key.startsWith("_")) && (
+                  {formData.custom_fields.length > 0 && (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
                       <span className="w-5"></span>
                       <span className="flex-1">Key</span>
@@ -1381,7 +1321,7 @@ export function ApiConfigurations() {
                       <span className="w-8"></span>
                     </div>
                   )}
-                  {formData.custom_fields.map((field, index) => field.key.startsWith("_") ? null : (
+                  {formData.custom_fields.map((field, index) => (
                     <div key={index} className={`flex items-center gap-1.5 ${field.enabled === false ? "opacity-40" : ""}`}>
                       <Checkbox
                         checked={field.enabled !== false}
@@ -1533,7 +1473,6 @@ export function ApiConfigurations() {
                     </Select>
                     <p className="text-[10px] text-muted-foreground">Applied to the <code className="font-mono">{"{{phone}}"}</code> token (and caller ID) before the request is sent.</p>
                   </div>
-
                 </div>
                     </TabsContent>
                     <TabsContent value="mapping" className="p-3 mt-0 data-[state=inactive]:hidden">
