@@ -144,7 +144,7 @@ const ConfigTableRow = memo(({
                 ? "bg-primary/20 text-primary border-primary/30"
                 : "bg-muted/50 text-muted-foreground"
           }>
-            {config.api_mode === "ping-post" ? "Ping/Post" : config.api_mode === "ping" ? "Ping Only" : "RTB"}
+            {config.api_mode === "ping-post" ? "Ping/Post" : config.api_mode === "ping" ? "Ping Only" : "RTB / Ping"}
           </Badge>
       </div>
     </TableCell>
@@ -982,7 +982,7 @@ export function ApiConfigurations() {
                   <Label className="text-xs">Request Mode *</Label>
                   <div className="inline-flex w-full rounded-lg border border-border bg-muted/30 p-0.5">
                     {([
-                      { v: "rtb", label: "RTB", hint: "Legacy single-step with RTB key" },
+                      { v: "rtb", label: "RTB / Ping", hint: "Legacy single-step with RTB key" },
                       { v: "ping-post", label: "Ping / Post", hint: "Check availability, then submit" },
                       { v: "ping", label: "Ping Only", hint: "One call, returns result directly" },
                     ] as const).map((opt) => (
