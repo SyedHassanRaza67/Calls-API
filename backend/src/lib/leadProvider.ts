@@ -1244,25 +1244,45 @@ export async function runPingPost(
       };
     }
     const ringbaBaseUrl = `https://rtb.ringba.com/v1/production/${encodeURIComponent(rtbId)}.json`;
-    const ringbaParams = new URLSearchParams();
+    const ringbaFields: Record<string, string> = {};
     const customKeys = new Set<string>();
+    let ringbaBodyFormatField: any = null;
     if (Array.isArray(apiConfig.custom_fields)) {
       for (const field of apiConfig.custom_fields) {
+        if (field.key === "_body_format") { ringbaBodyFormatField = field; continue; }
         if (field.key && field.enabled !== false) {
           const val = resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields);
-          ringbaParams.set(field.key, val);
+          ringbaFields[field.key] = val;
           customKeys.add(field.key.toLowerCase());
         }
       }
     }
-    if (!customKeys.has("cid")) ringbaParams.set("CID", formattedNumber);
-    if (!customKeys.has("zipcode") && caller_zip) ringbaParams.set("zipcode", caller_zip);
-    if (!customKeys.has("state") && caller_state) ringbaParams.set("state", caller_state);
-    if (!customKeys.has("exposecallerid")) ringbaParams.set("exposeCallerId", "yes");
+    if (!customKeys.has("cid")) ringbaFields["CID"] = formattedNumber;
+    if (!customKeys.has("zipcode") && caller_zip) ringbaFields["zipcode"] = caller_zip;
+    if (!customKeys.has("state") && caller_state) ringbaFields["state"] = caller_state;
+    if (!customKeys.has("exposecallerid")) ringbaFields["exposeCallerId"] = "yes";
 
-    const ringbaUrl = `${ringbaBaseUrl}?${ringbaParams.toString()}`;
     const httpMethod = (apiConfig.http_method || "GET").toUpperCase();
-    const ringbaResponse = await fetch(ringbaUrl, { method: httpMethod, headers: { Accept: "application/json" } });
+    let ringbaUrl = ringbaBaseUrl;
+    const ringbaFetchOptions: RequestInit = { method: httpMethod, headers: { Accept: "application/json" } };
+
+    // Legacy behavior: every field goes in the query string, no body — this is
+    // what D20/D21-Home-style Ringba targets expect. A target that instead reads
+    // tags from a JSON/form POST body (like D21 HS - Auto) opts in by adding a
+    // "_body_format" custom field, same convention as the "custom" RTB branch below.
+    if (httpMethod === "GET" || !ringbaBodyFormatField) {
+      const ringbaParams = new URLSearchParams();
+      for (const [k, v] of Object.entries(ringbaFields)) ringbaParams.set(k, v);
+      ringbaUrl = `${ringbaBaseUrl}?${ringbaParams.toString()}`;
+    } else if (ringbaBodyFormatField.value === "form") {
+      ringbaFetchOptions.headers = { ...(ringbaFetchOptions.headers as Record<string, string>), "Content-Type": "application/x-www-form-urlencoded" };
+      ringbaFetchOptions.body = new URLSearchParams(ringbaFields).toString();
+    } else {
+      ringbaFetchOptions.headers = { ...(ringbaFetchOptions.headers as Record<string, string>), "Content-Type": "application/json" };
+      ringbaFetchOptions.body = JSON.stringify(ringbaFields);
+    }
+
+    const ringbaResponse = await fetch(ringbaUrl, ringbaFetchOptions);
 
     const contentType = ringbaResponse.headers.get("content-type") || "";
     let ringbaData: Record<string, unknown>;
