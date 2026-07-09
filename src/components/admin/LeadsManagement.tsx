@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2, Phone, CheckCircle, XCircle, Users, Clock, Send } from "lucide-react";
 import { format, isToday, isWithinInterval, startOfDay, endOfDay } from "date-fns";
+import { cn } from "@/lib/utils";
 import { LeadsFilters, LeadsFilterState } from "./LeadsFilters";
 import { useLeads, useProfiles, useApiConfigurations } from "@/hooks/useAdminData";
 import { ResponseViewDialog } from "./ResponseViewDialog";
@@ -24,6 +25,8 @@ interface CampaignDetail {
   status: string;
   returnedDid: string | null;
   createdAt: string;
+  pingResponse: Record<string, unknown> | null;
+  apiResponse: Record<string, unknown> | null;
 }
 
 interface LeadWithAgent {
@@ -47,14 +50,20 @@ interface LeadWithAgent {
   campaigns: CampaignDetail[];
 }
 
-// Campaign column: shows the distinct campaigns this submission was called on and,
-// in a popover, the data passed to each call (Pub ID, Caller ID, State, Zip, DID).
+// Campaign column: shows the distinct campaigns this submission was called on.
+// Clicking a campaign badge selects it, which drives the Status/DID/Ping/Post
+// columns for that row. A popover (opened via the "N campaigns" label) shows
+// the full data passed to each call (Pub ID, Caller ID, State, Zip, DID).
 const CampaignCell = memo(({
   campaigns,
   formatPhoneNumber,
+  selectedConfigId,
+  onSelect,
 }: {
   campaigns: CampaignDetail[];
   formatPhoneNumber: (phone: string) => string;
+  selectedConfigId: string | null;
+  onSelect: (configId: string) => void;
 }) => {
   if (campaigns.length === 0) {
     return (
@@ -69,153 +78,208 @@ const CampaignCell = memo(({
   const extraCalls = campaigns.length - distinct.length;
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button className="flex flex-col items-start gap-1 text-left hover:opacity-80">
-          <span className="flex flex-wrap items-center gap-1">
-            {distinct.slice(0, 2).map((c) => (
-              <Badge key={c.configId} variant="outline" className="text-xs bg-primary/10 border-primary/30">
-                {c.name}
-              </Badge>
-            ))}
-            {distinct.length > 2 && (
-              <Badge variant="secondary" className="text-xs">+{distinct.length - 2}</Badge>
+    <div className="flex flex-col items-start gap-1">
+      <span className="flex flex-wrap items-center gap-1">
+        {distinct.slice(0, 2).map((c) => (
+          <button
+            key={c.configId}
+            type="button"
+            onClick={() => onSelect(c.configId)}
+            className={cn(
+              "text-xs rounded-md border px-2 py-0.5 transition-colors",
+              c.configId === selectedConfigId
+                ? "bg-primary/25 border-primary text-primary font-semibold"
+                : "bg-primary/10 border-primary/30 hover:bg-primary/20"
             )}
-          </span>
-          <span className="text-[10px] text-muted-foreground">
+          >
+            {c.name}
+          </button>
+        ))}
+        {distinct.length > 2 && (
+          <Badge variant="secondary" className="text-xs">+{distinct.length - 2}</Badge>
+        )}
+      </span>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button className="text-[10px] text-muted-foreground hover:underline text-left">
             {distinct.length} campaign{distinct.length > 1 ? "s" : ""}
             {extraCalls > 0 ? ` • ${campaigns.length} calls` : ""}
-          </span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 max-h-96 overflow-y-auto p-3">
-        <p className="text-xs font-semibold mb-2">
-          {campaigns.length} call{campaigns.length > 1 ? "s" : ""} across {distinct.length} campaign
-          {distinct.length > 1 ? "s" : ""}
-        </p>
-        <div className="space-y-2">
-          {campaigns.map((c) => (
-            <div key={c.leadId} className="rounded-md border border-border p-2 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium truncate">{c.name}</span>
-                {c.status === "success" ? (
-                  <CheckCircle className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
-                ) : c.status === "pending" ? (
-                  <Clock className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
-                ) : (
-                  <XCircle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-80 max-h-96 overflow-y-auto p-3">
+          <p className="text-xs font-semibold mb-2">
+            {campaigns.length} call{campaigns.length > 1 ? "s" : ""} across {distinct.length} campaign
+            {distinct.length > 1 ? "s" : ""} — click a campaign to view its responses
+          </p>
+          <div className="space-y-2">
+            {distinct.map((c) => (
+              <button
+                key={c.configId}
+                type="button"
+                onClick={() => onSelect(c.configId)}
+                className={cn(
+                  "w-full rounded-md border p-2 text-xs text-left transition-colors",
+                  c.configId === selectedConfigId
+                    ? "border-primary bg-primary/10"
+                    : "border-border hover:bg-muted/50"
                 )}
-              </div>
-              {(c.provider || c.mode) && (
-                <div className="text-[10px] text-muted-foreground">
-                  {[c.provider, c.mode].filter(Boolean).join(" / ")}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium truncate">{c.name}</span>
+                  {c.status === "success" ? (
+                    <CheckCircle className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                  ) : c.status === "pending" ? (
+                    <Clock className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
+                  )}
                 </div>
-              )}
-              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
-                <span>Pub ID: <span className="font-mono text-foreground">{c.publisherId || "—"}</span></span>
-                <span>Caller: <span className="font-mono text-foreground">{formatPhoneNumber(c.callerNumber)}</span></span>
-                <span>State: <span className="text-foreground">{c.callerState}</span></span>
-                <span>Zip: <span className="text-foreground">{c.callerZip}</span></span>
-                <span className="col-span-2">DID: <span className="font-mono text-foreground">{c.returnedDid || "—"}</span></span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
+                {(c.provider || c.mode) && (
+                  <div className="text-[10px] text-muted-foreground">
+                    {[c.provider, c.mode].filter(Boolean).join(" / ")}
+                  </div>
+                )}
+                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
+                  <span>Pub ID: <span className="font-mono text-foreground">{c.publisherId || "—"}</span></span>
+                  <span>Caller: <span className="font-mono text-foreground">{formatPhoneNumber(c.callerNumber)}</span></span>
+                  <span>State: <span className="text-foreground">{c.callerState}</span></span>
+                  <span>Zip: <span className="text-foreground">{c.callerZip}</span></span>
+                  <span className="col-span-2">DID: <span className="font-mono text-foreground">{c.returnedDid || "—"}</span></span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 });
 CampaignCell.displayName = "CampaignCell";
 
-// Memoized table row
-const LeadTableRow = memo(({ 
-  lead, 
-  formatPhoneNumber 
-}: { 
-  lead: LeadWithAgent; 
+// Memoized table row. When a submission hit multiple campaigns, the user can
+// click a campaign badge to switch which campaign's DID/Status/Ping/Post
+// responses are shown; it defaults to the first (earliest-called) campaign.
+const LeadTableRow = memo(({
+  lead,
+  formatPhoneNumber
+}: {
+  lead: LeadWithAgent;
   formatPhoneNumber: (phone: string) => string;
-}) => (
-  <TableRow className="border-border">
-    <TableCell className="text-muted-foreground text-sm">
-      {format(new Date(lead.created_at), "MMM d, yyyy h:mm a")}
-    </TableCell>
-    <TableCell>
-      <div>
-        <p className="font-medium">{lead.agent_name || "Unknown"}</p>
-        {lead.agent_email && (
-          <p className="text-xs text-muted-foreground">{lead.agent_email}</p>
+}) => {
+  // Distinct campaigns in call order (a submission may retry the same campaign).
+  const distinctCampaigns = useMemo(
+    () => Array.from(new Map(lead.campaigns.map((c) => [c.configId, c])).values()),
+    [lead.campaigns]
+  );
+
+  const [selectedConfigId, setSelectedConfigId] = useState<string | null>(
+    distinctCampaigns[0]?.configId ?? null
+  );
+
+  const selectedCampaign =
+    distinctCampaigns.find((c) => c.configId === selectedConfigId) ?? distinctCampaigns[0] ?? null;
+
+  const displayDid = selectedCampaign ? selectedCampaign.returnedDid : lead.returned_did;
+  const displayPing = selectedCampaign ? selectedCampaign.pingResponse : lead.ping_response;
+  const displayPost = selectedCampaign ? selectedCampaign.apiResponse : lead.api_response;
+
+  const handleSelectCampaign = useCallback((configId: string) => {
+    setSelectedConfigId(configId);
+  }, []);
+
+  return (
+    <TableRow className="border-border">
+      <TableCell className="text-muted-foreground text-sm">
+        {format(new Date(lead.created_at), "MMM d, yyyy h:mm a")}
+      </TableCell>
+      <TableCell>
+        <div>
+          <p className="font-medium">{lead.agent_name || "Unknown"}</p>
+          {lead.agent_email && (
+            <p className="text-xs text-muted-foreground">{lead.agent_email}</p>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        <CampaignCell
+          campaigns={lead.campaigns}
+          formatPhoneNumber={formatPhoneNumber}
+          selectedConfigId={selectedCampaign?.configId ?? null}
+          onSelect={handleSelectCampaign}
+        />
+      </TableCell>
+      <TableCell className="font-mono">
+        {formatPhoneNumber(lead.caller_number)}
+      </TableCell>
+      <TableCell>{lead.caller_state}</TableCell>
+      <TableCell>{lead.caller_zip}</TableCell>
+      <TableCell>
+        {displayDid ? (
+          <a
+            href={`tel:${displayDid}`}
+            className="font-mono text-primary hover:underline"
+          >
+            {displayDid}
+          </a>
+        ) : (
+          <span className="text-muted-foreground">—</span>
         )}
-      </div>
-    </TableCell>
-    <TableCell>
-      <CampaignCell campaigns={lead.campaigns} formatPhoneNumber={formatPhoneNumber} />
-    </TableCell>
-    <TableCell className="font-mono">
-      {formatPhoneNumber(lead.caller_number)}
-    </TableCell>
-    <TableCell>{lead.caller_state}</TableCell>
-    <TableCell>{lead.caller_zip}</TableCell>
-    <TableCell>
-      {lead.returned_did ? (
-        <a 
-          href={`tel:${lead.returned_did}`}
-          className="font-mono text-primary hover:underline"
-        >
-          {lead.returned_did}
-        </a>
-      ) : (
-        <span className="text-muted-foreground">—</span>
-      )}
-    </TableCell>
-    <TableCell>
-      {lead.submission_stage === "pending" ? (
-        <Badge className="bg-amber-500/20 text-amber-600 border-amber-500/30">
-          <Clock className="h-3 w-3 mr-1" />
-          Pending
-        </Badge>
-      ) : lead.submission_stage === "complete" ? (
-        lead.status === "success" ? (
-          <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
-            <CheckCircle className="h-3 w-3 mr-1" />
-            Success
+      </TableCell>
+      <TableCell>
+        {selectedCampaign ? (
+          selectedCampaign.status === "success" ? (
+            <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Success
+            </Badge>
+          ) : selectedCampaign.status === "pending" ? (
+            <Badge className="bg-amber-500/20 text-amber-600 border-amber-500/30">
+              <Clock className="h-3 w-3 mr-1" />
+              Pending
+            </Badge>
+          ) : (
+            <Badge variant="destructive" className="bg-destructive/20 text-destructive border-destructive/30">
+              <XCircle className="h-3 w-3 mr-1" />
+              Failed
+            </Badge>
+          )
+        ) : lead.submission_stage === "pending" ? (
+          <Badge className="bg-amber-500/20 text-amber-600 border-amber-500/30">
+            <Clock className="h-3 w-3 mr-1" />
+            Pending
+          </Badge>
+        ) : lead.submission_stage === "ping" ? (
+          <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+            <Clock className="h-3 w-3 mr-1" />
+            Ping
           </Badge>
         ) : (
-          <Badge variant="destructive" className="bg-destructive/20 text-destructive border-destructive/30">
-            <XCircle className="h-3 w-3 mr-1" />
-            Failed
+          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+            <Send className="h-3 w-3 mr-1" />
+            Posted
           </Badge>
-        )
-      ) : lead.submission_stage === "ping" ? (
-        <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
-          <Clock className="h-3 w-3 mr-1" />
-          Ping
-        </Badge>
-      ) : (
-        <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
-          <Send className="h-3 w-3 mr-1" />
-          Posted
-        </Badge>
-      )}
-      {lead.campaign_count > 0 && (
-        <span className="ml-2 text-[10px] text-muted-foreground">{lead.campaign_count} call{lead.campaign_count > 1 ? "s" : ""}</span>
-      )}
-    </TableCell>
-    <TableCell>
-      <ResponseViewDialog
-        title="Ping Response"
-        data={lead.ping_response}
-        variant="ping"
-      />
-    </TableCell>
-    <TableCell>
-      <ResponseViewDialog
-        title="Post Response"
-        data={lead.api_response}
-        variant="post"
-      />
-    </TableCell>
-  </TableRow>
-));
+        )}
+        {lead.campaign_count > 0 && (
+          <span className="ml-2 text-[10px] text-muted-foreground">{lead.campaign_count} call{lead.campaign_count > 1 ? "s" : ""}</span>
+        )}
+      </TableCell>
+      <TableCell>
+        <ResponseViewDialog
+          title={selectedCampaign ? `Ping Response — ${selectedCampaign.name}` : "Ping Response"}
+          data={displayPing}
+          variant="ping"
+        />
+      </TableCell>
+      <TableCell>
+        <ResponseViewDialog
+          title={selectedCampaign ? `Post Response — ${selectedCampaign.name}` : "Post Response"}
+          data={displayPost}
+          variant="post"
+        />
+      </TableCell>
+    </TableRow>
+  );
+});
 LeadTableRow.displayName = "LeadTableRow";
 
 // Loading skeleton
@@ -312,6 +376,8 @@ export function LeadsManagement() {
           status: lead.status,
           returnedDid: lead.returned_did,
           createdAt: lead.created_at,
+          pingResponse: lead.ping_response as Record<string, unknown> | null,
+          apiResponse: lead.api_response as Record<string, unknown> | null,
         });
         if (lead.status === "success" && lead.returned_did && !g.returned_did) {
           g.returned_did = lead.returned_did;
