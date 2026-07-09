@@ -1177,6 +1177,26 @@ export function ApiConfigurations() {
                   />
                 </div>
 
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="hide_response" className="text-xs">Hide response from agents</Label>
+                    <p className="text-[10px] text-muted-foreground">Agents see only the returned DID, not the raw API response</p>
+                  </div>
+                  <Switch
+                    id="hide_response"
+                    checked={formData.custom_fields.some(f => f.key === "_hide_response" && (f.value === "1" || f.value === "true"))}
+                    onCheckedChange={(checked) => {
+                      const filtered = formData.custom_fields.filter(f => f.key !== "_hide_response");
+                      setFormData({
+                        ...formData,
+                        custom_fields: checked
+                          ? [...filtered, { key: "_hide_response", value: "1", enabled: true }]
+                          : filtered,
+                      });
+                    }}
+                  />
+                </div>
+
                   {isSuperAdmin && (
                     <>
                 {/* Assign to Admin — super admin only */}
@@ -1321,7 +1341,10 @@ export function ApiConfigurations() {
                       <span className="w-8"></span>
                     </div>
                   )}
-                  {formData.custom_fields.map((field, index) => (
+                  {formData.custom_fields
+                    .map((field, index) => ({ field, index }))
+                    .filter(({ field }) => field.key !== "_hide_response")
+                    .map(({ field, index }) => (
                     <div key={index} className={`flex items-center gap-1.5 ${field.enabled === false ? "opacity-40" : ""}`}>
                       <Checkbox
                         checked={field.enabled !== false}

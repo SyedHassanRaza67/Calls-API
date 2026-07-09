@@ -78,6 +78,18 @@ interface ResponseDialogState {
   forwardingNumber?: string;
   notes?: string;
   callerNumber?: string;
+  hideResponse?: boolean;
+}
+
+/**
+ * True when this campaign is configured to hide the raw API response from agents
+ * (they see only the returned DID). Backed by the `_hide_response` meta custom field.
+ */
+function isResponseHiddenFromAgents(config: any): boolean {
+  const fields = Array.isArray(config?.custom_fields) ? config.custom_fields : [];
+  return fields.some(
+    (f: any) => f?.key === "_hide_response" && (f.value === "1" || f.value === true || f.value === "true")
+  );
 }
 
 type StatusFilter = "all" | "success" | "failed" | "idle";
@@ -357,7 +369,7 @@ const CampaignOverlay = memo(function CampaignOverlay({
                       onUpdateSubmission(sub.id, config.id, { status: "idle" });
                       setTimeout(() => onTriggerCampaign(sub.id, config.id, config.api_mode), 50);
                     }}
-                    onOpenResponse={() => onOpenResponse({ open: true, campaignName: config.name, result, did: result.did, forwardingNumber: config.trackdrive_number || undefined, notes: (config as any).notes || undefined, callerNumber: sub.callerNumber })}
+                    onOpenResponse={() => onOpenResponse({ open: true, campaignName: config.name, result, did: result.did, forwardingNumber: config.trackdrive_number || undefined, notes: (config as any).notes || undefined, callerNumber: sub.callerNumber, hideResponse: isResponseHiddenFromAgents(config) })}
                   />
                 );
               })}
@@ -540,6 +552,7 @@ export function AgentWorkspace() {
         forwardingNumber,
         notes: campaignNotes,
         callerNumber: submission.callerNumber,
+        hideResponse: isResponseHiddenFromAgents(campaignConfig),
       });
     };
 
@@ -996,7 +1009,7 @@ export function AgentWorkspace() {
               <p className="text-sm text-blue-700 whitespace-pre-wrap">{responseDialog.notes}</p>
             </div>
           )}
-          {responseDialog.result?.raw && (
+          {responseDialog.result?.raw && !responseDialog.hideResponse && (
             <Collapsible>
               <CollapsibleTrigger asChild>
                 <Button variant="ghost" className="w-full justify-between text-muted-foreground">
@@ -1012,6 +1025,11 @@ export function AgentWorkspace() {
                 </div>
               </CollapsibleContent>
             </Collapsible>
+          )}
+          {responseDialog.hideResponse && (
+            <p className="text-[11px] text-muted-foreground text-center pt-1">
+              Response details are hidden for this campaign.
+            </p>
           )}
         </DialogContent>
       </Dialog>
