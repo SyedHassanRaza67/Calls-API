@@ -1,10 +1,10 @@
-import { useState, useMemo, memo, useCallback } from "react";
+import { useState, useMemo, memo, useCallback, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, Phone, CheckCircle, XCircle, Users, Clock, Send } from "lucide-react";
+import { Loader2, Phone, CheckCircle, XCircle, Users, Clock, Send, AlertTriangle } from "lucide-react";
 import { format, isToday, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { LeadsFilters, LeadsFilterState } from "./LeadsFilters";
@@ -348,18 +348,107 @@ const TableSkeleton = () => (
   </div>
 );
 
+// Classifies a submission using the RAW per-call status/DID on each campaign
+// attempt (not the blended group fields), so a call that came back 200 OK
+// but with no target/bid (no DID) is distinguished from a genuine failure.
+// Priority when a submission hit several campaigns: any DID wins, then any
+// no-DID success, then any failure, else it's still pending/in-flight.
+type LeadClassification = "success_did" | "success_no_did" | "failed" | "pending";
+
+function classifyLead(lead: LeadWithAgent): LeadClassification {
+  if (lead.campaigns.length === 0) {
+    if (lead.status === "success") return lead.returned_did ? "success_did" : "success_no_did";
+    if (lead.status === "failed") return "failed";
+    return "pending";
+  }
+  if (lead.campaigns.some((c) => c.status === "success" && c.returnedDid)) return "success_did";
+  if (lead.campaigns.some((c) => c.status === "success" && !c.returnedDid)) return "success_no_did";
+  if (lead.campaigns.some((c) => c.status === "failed")) return "failed";
+  return "pending";
+}
+
+type CardFilter = {
+  scope: "filtered" | "today";
+  classification: "all" | LeadClassification;
+};
+
+const DEFAULT_CARD_FILTER: CardFilter = { scope: "filtered", classification: "all" };
+
+const CARD_FILTER_LABELS: Record<string, string> = {
+  "filtered:all": "Total Leads",
+  "today:all": "Today's Leads",
+  "today:success_did": "Successful DIDs (Today)",
+  "today:success_no_did": "Successful, No DID (Today)",
+  "today:failed": "Failed Leads (Today)",
+};
+
+// Clickable dashboard stat tile. Clicking narrows the Lead Submissions table
+// below to just this bucket; clicking the already-active tile clears it.
+function StatCard({
+  title,
+  value,
+  subtitle,
+  icon,
+  isActive,
+  onClick,
+  valueClassName,
+}: {
+  title: string;
+  value: number;
+  subtitle: string;
+  icon: ReactNode;
+  isActive: boolean;
+  onClick: () => void;
+  valueClassName?: string;
+}) {
+  return (
+    <Card
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={cn(
+        "bg-card/50 border-border cursor-pointer transition-colors hover:bg-card/80",
+        isActive && "border-primary bg-primary/5 ring-1 ring-primary/40"
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        {icon}
+      </CardHeader>
+      <CardContent>
+        <div className={cn("text-3xl font-bold", valueClassName)}>{value}</div>
+        <p className="text-xs text-muted-foreground">{subtitle}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function LeadsManagement() {
   const { data: leads, isLoading: leadsLoading } = useLeads();
   const { data: profiles } = useProfiles();
   const { data: apiConfigs } = useApiConfigurations();
 
   const [filters, setFilters] = useState<LeadsFilterState>({
-    dateRange: undefined,
+    dateRange: { from: startOfDay(new Date()), to: endOfDay(new Date()) },
     status: "all",
     agentId: "all",
     state: "all",
     apiConfigId: "all",
   });
+
+  // Which stat card is currently narrowing the table below (defaults to "no narrowing").
+  const [cardFilter, setCardFilter] = useState<CardFilter>(DEFAULT_CARD_FILTER);
+  const handleCardClick = useCallback((next: CardFilter) => {
+    setCardFilter((prev) =>
+      prev.scope === next.scope && prev.classification === next.classification ? DEFAULT_CARD_FILTER : next
+    );
+  }, []);
 
   // Memoized profile and config maps
   const profileMap = useMemo(() => 
@@ -482,14 +571,26 @@ export function LeadsManagement() {
   }, [leadsWithAgents, filters]);
 
   // Stats
-  const { todayLeads, totalLeadsToday, successfulDidsToday } = useMemo(() => {
+  const { todayLeads, totalLeadsToday, successfulDidsToday, successNoDidToday, failedToday } = useMemo(() => {
     const todayLeads = filteredLeads.filter(lead => isToday(new Date(lead.created_at)));
-    return {
-      todayLeads,
-      totalLeadsToday: todayLeads.length,
-      successfulDidsToday: todayLeads.filter(lead => lead.status === "success" && lead.returned_did).length,
-    };
+    let successfulDidsToday = 0;
+    let successNoDidToday = 0;
+    let failedToday = 0;
+    for (const lead of todayLeads) {
+      const c = classifyLead(lead);
+      if (c === "success_did") successfulDidsToday++;
+      else if (c === "success_no_did") successNoDidToday++;
+      else if (c === "failed") failedToday++;
+    }
+    return { todayLeads, totalLeadsToday: todayLeads.length, successfulDidsToday, successNoDidToday, failedToday };
   }, [filteredLeads]);
+
+  // The table below shows filteredLeads narrowed further by whichever stat card is selected.
+  const visibleLeads = useMemo(() => {
+    const base = cardFilter.scope === "today" ? todayLeads : filteredLeads;
+    if (cardFilter.classification === "all") return base;
+    return base.filter((lead) => classifyLead(lead) === cardFilter.classification);
+  }, [filteredLeads, todayLeads, cardFilter]);
 
   const formatPhoneNumber = useCallback((phone: string) => {
     const cleaned = phone.replace(/\D/g, "");
@@ -521,65 +622,82 @@ export function LeadsManagement() {
         apiConfigs={apiConfigs?.map(c => ({ id: c.id, name: c.name })) || []}
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="bg-card/50 border-border">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Leads (Filtered)
-            </CardTitle>
-            <Users className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{filteredLeads.length}</div>
-            <p className="text-xs text-muted-foreground">matching filters</p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <StatCard
+          title="Total Leads (Filtered)"
+          value={filteredLeads.length}
+          subtitle="matching filters"
+          icon={<Users className="h-4 w-4 text-primary" />}
+          isActive={cardFilter.scope === "filtered" && cardFilter.classification === "all"}
+          onClick={() => handleCardClick({ scope: "filtered", classification: "all" })}
+        />
 
-        <Card className="bg-card/50 border-border">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Today's Leads
-            </CardTitle>
-            <Phone className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{totalLeadsToday}</div>
-            <p className="text-xs text-muted-foreground">submissions today</p>
-          </CardContent>
-        </Card>
+        <StatCard
+          title="Today's Leads"
+          value={totalLeadsToday}
+          subtitle="submissions today"
+          icon={<Phone className="h-4 w-4 text-primary" />}
+          isActive={cardFilter.scope === "today" && cardFilter.classification === "all"}
+          onClick={() => handleCardClick({ scope: "today", classification: "all" })}
+        />
 
-        <Card className="bg-card/50 border-border">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Successful DIDs
-            </CardTitle>
-            <CheckCircle className="h-4 w-4 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-emerald-500">{successfulDidsToday}</div>
-            <p className="text-xs text-muted-foreground">
-              {totalLeadsToday > 0 
-                ? `${Math.round((successfulDidsToday / totalLeadsToday) * 100)}% success rate today`
-                : "no leads today"
-              }
-            </p>
-          </CardContent>
-        </Card>
+        <StatCard
+          title="Successful DIDs"
+          value={successfulDidsToday}
+          valueClassName="text-emerald-500"
+          subtitle={totalLeadsToday > 0 ? `${Math.round((successfulDidsToday / totalLeadsToday) * 100)}% success rate today` : "no leads today"}
+          icon={<CheckCircle className="h-4 w-4 text-emerald-500" />}
+          isActive={cardFilter.scope === "today" && cardFilter.classification === "success_did"}
+          onClick={() => handleCardClick({ scope: "today", classification: "success_did" })}
+        />
+
+        <StatCard
+          title="Successful, No DID"
+          value={successNoDidToday}
+          valueClassName="text-amber-500"
+          subtitle="API returned OK but no DID"
+          icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
+          isActive={cardFilter.scope === "today" && cardFilter.classification === "success_no_did"}
+          onClick={() => handleCardClick({ scope: "today", classification: "success_no_did" })}
+        />
+
+        <StatCard
+          title="Failed Leads"
+          value={failedToday}
+          valueClassName="text-destructive"
+          subtitle="API not returning correctly"
+          icon={<XCircle className="h-4 w-4 text-destructive" />}
+          isActive={cardFilter.scope === "today" && cardFilter.classification === "failed"}
+          onClick={() => handleCardClick({ scope: "today", classification: "failed" })}
+        />
       </div>
 
       <Card className="bg-card/50 border-border">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Phone className="h-5 w-5" />
-            Lead Submissions ({filteredLeads.length})
-          </CardTitle>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <Phone className="h-5 w-5" />
+              Lead Submissions ({visibleLeads.length})
+            </CardTitle>
+            {cardFilter.classification !== "all" || cardFilter.scope !== "filtered" ? (
+              <button
+                type="button"
+                onClick={() => setCardFilter(DEFAULT_CARD_FILTER)}
+                className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Viewing: {CARD_FILTER_LABELS[`${cardFilter.scope}:${cardFilter.classification}`]} — clear
+              </button>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent>
-          {filteredLeads.length === 0 ? (
+          {visibleLeads.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {(leads?.length || 0) === 0 
+              {(leads?.length || 0) === 0
                 ? "No leads have been submitted yet."
-                : "No leads match the current filters."
+                : filteredLeads.length === 0
+                ? "No leads match the current filters."
+                : "No leads match this view."
               }
             </div>
           ) : (
@@ -600,7 +718,7 @@ export function LeadsManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredLeads.slice(0, 100).map((lead) => (
+                  {visibleLeads.slice(0, 100).map((lead) => (
                     <LeadTableRow
                       key={lead.id}
                       lead={lead}
@@ -609,9 +727,9 @@ export function LeadsManagement() {
                   ))}
                 </TableBody>
               </Table>
-              {filteredLeads.length > 100 && (
+              {visibleLeads.length > 100 && (
                 <p className="text-center text-sm text-muted-foreground mt-4">
-                  Showing first 100 of {filteredLeads.length} leads
+                  Showing first 100 of {visibleLeads.length} leads
                 </p>
               )}
             </div>
