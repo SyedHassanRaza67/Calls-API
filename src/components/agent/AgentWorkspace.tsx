@@ -967,9 +967,17 @@ export function AgentWorkspace() {
               {responseDialog.campaignName}
             </DialogTitle>
             <DialogDescription>
-              {responseDialog.result?.status === "success"
-                ? "API call was successful"
-                : responseDialog.result?.error || "API call failed"}
+              {(() => {
+                const s = responseDialog.result?.httpStatus;
+                const httpLabel = s
+                  ? `${s} ${s >= 200 && s < 300 ? "OK" : "Error"}`
+                  : null;
+                if (responseDialog.result?.status === "success") {
+                  return httpLabel || "API call was successful";
+                }
+                const errorMsg = responseDialog.result?.error || "API call failed";
+                return httpLabel ? `${httpLabel} — ${errorMsg}` : errorMsg;
+              })()}
             </DialogDescription>
           </DialogHeader>
           {responseDialog.result?.status === "success" && responseDialog.forwardingNumber && (

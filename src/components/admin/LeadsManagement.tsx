@@ -159,6 +159,9 @@ CampaignCell.displayName = "CampaignCell";
 // Memoized table row. When a submission hit multiple campaigns, the user can
 // click a campaign badge to switch which campaign's DID/Status/Ping/Post
 // responses are shown; it defaults to the first (earliest-called) campaign.
+// If that campaign itself was retried more than once, numbered buttons
+// (1, 2, 3, ...) let the user pick which specific attempt to inspect,
+// defaulting to attempt 1 (the earliest call).
 const LeadTableRow = memo(({
   lead,
   formatPhoneNumber
@@ -166,18 +169,33 @@ const LeadTableRow = memo(({
   lead: LeadWithAgent;
   formatPhoneNumber: (phone: string) => string;
 }) => {
-  // Distinct campaigns in call order (a submission may retry the same campaign).
+  // Every call attempt, grouped by campaign, in call order (oldest first).
+  const attemptsByConfig = useMemo(() => {
+    const map = new Map<string, CampaignDetail[]>();
+    for (const c of lead.campaigns) {
+      const arr = map.get(c.configId);
+      if (arr) arr.push(c);
+      else map.set(c.configId, [c]);
+    }
+    return map;
+  }, [lead.campaigns]);
+
+  // One representative (first attempt) per distinct campaign, for the badge row.
   const distinctCampaigns = useMemo(
-    () => Array.from(new Map(lead.campaigns.map((c) => [c.configId, c])).values()),
-    [lead.campaigns]
+    () => Array.from(attemptsByConfig.values()).map((attempts) => attempts[0]),
+    [attemptsByConfig]
   );
 
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(
     distinctCampaigns[0]?.configId ?? null
   );
+  const [selectedAttemptIndex, setSelectedAttemptIndex] = useState(0);
 
-  const selectedCampaign =
-    distinctCampaigns.find((c) => c.configId === selectedConfigId) ?? distinctCampaigns[0] ?? null;
+  const effectiveConfigId =
+    selectedConfigId && attemptsByConfig.has(selectedConfigId) ? selectedConfigId : distinctCampaigns[0]?.configId ?? null;
+  const selectedAttempts = effectiveConfigId ? attemptsByConfig.get(effectiveConfigId) ?? [] : [];
+  const clampedAttemptIndex = Math.min(selectedAttemptIndex, Math.max(selectedAttempts.length - 1, 0));
+  const selectedCampaign = selectedAttempts[clampedAttemptIndex] ?? null;
 
   const displayDid = selectedCampaign ? selectedCampaign.returnedDid : lead.returned_did;
   const displayPing = selectedCampaign ? selectedCampaign.pingResponse : lead.ping_response;
@@ -185,6 +203,7 @@ const LeadTableRow = memo(({
 
   const handleSelectCampaign = useCallback((configId: string) => {
     setSelectedConfigId(configId);
+    setSelectedAttemptIndex(0);
   }, []);
 
   return (
@@ -259,20 +278,49 @@ const LeadTableRow = memo(({
             Posted
           </Badge>
         )}
-        {lead.campaign_count > 0 && (
-          <span className="ml-2 text-[10px] text-muted-foreground">{lead.campaign_count} call{lead.campaign_count > 1 ? "s" : ""}</span>
+        {selectedAttempts.length > 1 ? (
+          <span className="ml-2 inline-flex items-center gap-1 align-middle">
+            {selectedAttempts.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setSelectedAttemptIndex(i)}
+                title={`Call ${i + 1} of ${selectedAttempts.length}`}
+                className={cn(
+                  "h-4 w-4 rounded-full text-[9px] font-semibold flex items-center justify-center border transition-colors",
+                  i === clampedAttemptIndex
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted text-muted-foreground border-border hover:bg-muted/70"
+                )}
+              >
+                {i + 1}
+              </button>
+            ))}
+          </span>
+        ) : (
+          lead.campaign_count > 0 && (
+            <span className="ml-2 text-[10px] text-muted-foreground">{lead.campaign_count} call{lead.campaign_count > 1 ? "s" : ""}</span>
+          )
         )}
       </TableCell>
       <TableCell>
         <ResponseViewDialog
-          title={selectedCampaign ? `Ping Response — ${selectedCampaign.name}` : "Ping Response"}
+          title={
+            selectedCampaign
+              ? `Ping Response — ${selectedCampaign.name}${selectedAttempts.length > 1 ? ` (call ${clampedAttemptIndex + 1} of ${selectedAttempts.length})` : ""}`
+              : "Ping Response"
+          }
           data={displayPing}
           variant="ping"
         />
       </TableCell>
       <TableCell>
         <ResponseViewDialog
-          title={selectedCampaign ? `Post Response — ${selectedCampaign.name}` : "Post Response"}
+          title={
+            selectedCampaign
+              ? `Post Response — ${selectedCampaign.name}${selectedAttempts.length > 1 ? ` (call ${clampedAttemptIndex + 1} of ${selectedAttempts.length})` : ""}`
+              : "Post Response"
+          }
           data={displayPost}
           variant="post"
         />
