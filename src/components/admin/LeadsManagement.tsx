@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, Phone, CheckCircle, XCircle, Users, Clock, Send, AlertTriangle } from "lucide-react";
+import { Loader2, Phone, CheckCircle, XCircle, Users, Clock, Send, AlertTriangle, Zap } from "lucide-react";
 import { format, isToday, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { LeadsFilters, LeadsFilterState } from "./LeadsFilters";
@@ -395,25 +395,27 @@ function StatCard({
 }: {
   title: string;
   value: number;
-  subtitle: string;
+  subtitle: ReactNode;
   icon: ReactNode;
   isActive: boolean;
-  onClick: () => void;
+  onClick?: () => void;
   valueClassName?: string;
 }) {
+  const clickable = typeof onClick === "function";
   return (
     <Card
-      role="button"
-      tabIndex={0}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
       onClick={onClick}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        if (clickable && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
-          onClick();
+          onClick?.();
         }
       }}
       className={cn(
-        "bg-card/50 border-border cursor-pointer transition-colors hover:bg-card/80",
+        "bg-card/50 border-border transition-colors",
+        clickable && "cursor-pointer hover:bg-card/80",
         isActive && "border-primary bg-primary/5 ring-1 ring-primary/40"
       )}
     >
@@ -585,6 +587,13 @@ export function LeadsManagement() {
     return { todayLeads, totalLeadsToday: todayLeads.length, successfulDidsToday, successNoDidToday, failedToday };
   }, [filteredLeads]);
 
+  // API configuration counts (total / active / inactive)
+  const apiStats = useMemo(() => {
+    const all = apiConfigs ?? [];
+    const active = all.filter((c) => c.is_active).length;
+    return { total: all.length, active, inactive: all.length - active };
+  }, [apiConfigs]);
+
   // The table below shows filteredLeads narrowed further by whichever stat card is selected.
   const visibleLeads = useMemo(() => {
     const base = cardFilter.scope === "today" ? todayLeads : filteredLeads;
@@ -622,7 +631,21 @@ export function LeadsManagement() {
         apiConfigs={apiConfigs?.map(c => ({ id: c.id, name: c.name })) || []}
       />
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <StatCard
+          title="Total APIs"
+          value={apiStats.total}
+          icon={<Zap className="h-4 w-4 text-primary" />}
+          isActive={false}
+          subtitle={
+            <span>
+              <span className="text-emerald-500 font-medium">{apiStats.active} active</span>
+              {" · "}
+              <span className="text-muted-foreground">{apiStats.inactive} inactive</span>
+            </span>
+          }
+        />
+
         <StatCard
           title="Total Leads (Filtered)"
           value={filteredLeads.length}
