@@ -37,7 +37,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { Loader2, Plus, Pencil, Trash2, Copy, Key, CheckCircle, XCircle, User, FlaskConical, AlertTriangle, ChevronDown, Link, Phone, MessageSquare, Send, UserCheck } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Copy, Key, CheckCircle, XCircle, User, FlaskConical, AlertTriangle, ChevronDown, Link, Phone, MessageSquare, Send, UserCheck, Search, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -242,6 +243,64 @@ const TableSkeleton = () => (
   </div>
 );
 
+type ApiStatusFilter = "all" | "active" | "inactive";
+
+const API_STAT_THEMES: Record<ApiStatusFilter, {
+  icon: typeof Zap;
+  iconWrap: string;
+  valueColor: string;
+  activeRing: string;
+}> = {
+  all: {
+    icon: Zap,
+    iconWrap: "bg-blue-500/15 text-blue-500",
+    valueColor: "text-blue-600 dark:text-blue-400",
+    activeRing: "border-blue-500/60 bg-blue-500/5 ring-blue-500/40",
+  },
+  active: {
+    icon: CheckCircle,
+    iconWrap: "bg-emerald-500/15 text-emerald-500",
+    valueColor: "text-emerald-600 dark:text-emerald-400",
+    activeRing: "border-emerald-500/60 bg-emerald-500/5 ring-emerald-500/40",
+  },
+  inactive: {
+    icon: XCircle,
+    iconWrap: "bg-rose-500/15 text-rose-500",
+    valueColor: "text-rose-600 dark:text-rose-400",
+    activeRing: "border-rose-500/60 bg-rose-500/5 ring-rose-500/40",
+  },
+};
+
+const ApiStatCard = memo(({ statusKey, label, value, isActive, onClick }: {
+  statusKey: ApiStatusFilter;
+  label: string;
+  value: number;
+  isActive: boolean;
+  onClick: () => void;
+}) => {
+  const theme = API_STAT_THEMES[statusKey];
+  const Icon = theme.icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-3 rounded-xl border p-3 text-left transition-all hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        isActive ? cn("ring-1", theme.activeRing) : "border-border bg-card/50 hover:bg-card/80"
+      )}
+    >
+      <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", theme.iconWrap)}>
+        <Icon className="h-5 w-5" />
+      </span>
+      <div className="min-w-0">
+        <div className={cn("text-2xl font-bold leading-none", theme.valueColor)}>{value}</div>
+        <div className="mt-1 text-xs text-muted-foreground truncate">{label}</div>
+      </div>
+    </button>
+  );
+});
+ApiStatCard.displayName = "ApiStatCard";
+
 export function ApiConfigurations() {
   const { user, isSuperAdmin } = useAuth();
   const { data: configs, isLoading } = useApiConfigurations();
@@ -303,6 +362,33 @@ export function ApiConfigurations() {
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; details?: any } | null>(null);
   const [isTestResultOpen, setIsTestResultOpen] = useState(false);
+
+  // API list filters (search + status cards)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ApiStatusFilter>("all");
+
+  const apiCounts = useMemo(() => {
+    const all = configs ?? [];
+    const active = all.filter((c: any) => c.is_active).length;
+    return { total: all.length, active, inactive: all.length - active };
+  }, [configs]);
+
+  const filteredConfigs = useMemo(() => {
+    let list = configs ?? [];
+    if (statusFilter === "active") list = list.filter((c: any) => c.is_active);
+    else if (statusFilter === "inactive") list = list.filter((c: any) => !c.is_active);
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((c: any) =>
+        (c.name || "").toLowerCase().includes(q) ||
+        (c.ping_url || "").toLowerCase().includes(q) ||
+        (c.post_url || "").toLowerCase().includes(q) ||
+        (c.buyer || "").toLowerCase().includes(q) ||
+        (c.campaign_section || "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [configs, statusFilter, searchQuery]);
 
 
   // Campaign Names — the section an API belongs to (groups APIs on the agent call screen)
@@ -1615,23 +1701,69 @@ export function ApiConfigurations() {
         )}
       </div>
 
+      {configs && configs.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <ApiStatCard
+            statusKey="all"
+            label="Total APIs"
+            value={apiCounts.total}
+            isActive={statusFilter === "all"}
+            onClick={() => setStatusFilter("all")}
+          />
+          <ApiStatCard
+            statusKey="active"
+            label="Activated APIs"
+            value={apiCounts.active}
+            isActive={statusFilter === "active"}
+            onClick={() => setStatusFilter("active")}
+          />
+          <ApiStatCard
+            statusKey="inactive"
+            label="Deactivated APIs"
+            value={apiCounts.inactive}
+            isActive={statusFilter === "inactive"}
+            onClick={() => setStatusFilter("inactive")}
+          />
+        </div>
+      )}
+
       <Card className="bg-card/50 border-border">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Key className="h-5 w-5" />
-            {isSuperAdmin ? "All API Configurations" : "Your Assigned APIs"}
-          </CardTitle>
-          <CardDescription>
-            {isSuperAdmin ? "APIs assigned to admins for their agents" : "APIs available for your agents"}
-          </CardDescription>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                {isSuperAdmin ? "All API Configurations" : "Your Assigned APIs"}
+              </CardTitle>
+              <CardDescription>
+                {isSuperAdmin ? "APIs assigned to admins for their agents" : "APIs available for your agents"}
+              </CardDescription>
+            </div>
+            {configs && configs.length > 0 && (
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  placeholder="Search by name, endpoint, buyer…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {!configs || configs.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {isSuperAdmin 
+              {isSuperAdmin
                 ? "No API configurations yet. Click \"Add API\" to create one."
                 : "No APIs assigned. Contact a super admin."
               }
+            </div>
+          ) : filteredConfigs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No APIs match your current filters.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -1648,7 +1780,7 @@ export function ApiConfigurations() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {configs.map((config) => (
+                  {filteredConfigs.map((config) => (
                     <ConfigTableRow
                       key={config.id}
                       config={config}

@@ -384,6 +384,16 @@ const CARD_FILTER_LABELS: Record<string, string> = {
 
 // Clickable dashboard stat tile. Clicking narrows the Lead Submissions table
 // below to just this bucket; clicking the already-active tile clears it.
+type StatAccent = "primary" | "emerald" | "amber" | "rose" | "violet";
+
+const STAT_ACCENTS: Record<StatAccent, { chip: string; ring: string }> = {
+  primary: { chip: "bg-primary/10", ring: "border-primary/60 bg-primary/5 ring-primary/40" },
+  emerald: { chip: "bg-emerald-500/10", ring: "border-emerald-500/60 bg-emerald-500/5 ring-emerald-500/40" },
+  amber: { chip: "bg-amber-500/10", ring: "border-amber-500/60 bg-amber-500/5 ring-amber-500/40" },
+  rose: { chip: "bg-rose-500/10", ring: "border-rose-500/60 bg-rose-500/5 ring-rose-500/40" },
+  violet: { chip: "bg-violet-500/10", ring: "border-violet-500/60 bg-violet-500/5 ring-violet-500/40" },
+};
+
 function StatCard({
   title,
   value,
@@ -392,6 +402,7 @@ function StatCard({
   isActive,
   onClick,
   valueClassName,
+  accent = "primary",
 }: {
   title: string;
   value: number;
@@ -400,8 +411,10 @@ function StatCard({
   isActive: boolean;
   onClick?: () => void;
   valueClassName?: string;
+  accent?: StatAccent;
 }) {
   const clickable = typeof onClick === "function";
+  const a = STAT_ACCENTS[accent];
   return (
     <Card
       role={clickable ? "button" : undefined}
@@ -414,18 +427,20 @@ function StatCard({
         }
       }}
       className={cn(
-        "bg-card/50 border-border transition-colors",
-        clickable && "cursor-pointer hover:bg-card/80",
-        isActive && "border-primary bg-primary/5 ring-1 ring-primary/40"
+        "bg-card/50 border-border transition-all",
+        clickable && "cursor-pointer hover:bg-card/80 hover:shadow-sm",
+        isActive && cn("ring-1", a.ring)
       )}
     >
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-        {icon}
-      </CardHeader>
-      <CardContent>
-        <div className={cn("text-3xl font-bold", valueClassName)}>{value}</div>
-        <p className="text-xs text-muted-foreground">{subtitle}</p>
+      <CardContent className="p-3">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <span className="text-xs font-medium text-muted-foreground truncate">{title}</span>
+          <span className={cn("flex h-7 w-7 items-center justify-center rounded-lg shrink-0", a.chip)}>
+            {icon}
+          </span>
+        </div>
+        <div className={cn("text-2xl font-bold leading-none", valueClassName)}>{value}</div>
+        <p className="text-[11px] text-muted-foreground mt-1 leading-tight">{subtitle}</p>
       </CardContent>
     </Card>
   );
@@ -631,25 +646,12 @@ export function LeadsManagement() {
         apiConfigs={apiConfigs?.map(c => ({ id: c.id, name: c.name })) || []}
       />
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <StatCard
-          title="Total APIs"
-          value={apiStats.total}
-          icon={<Zap className="h-4 w-4 text-primary" />}
-          isActive={false}
-          subtitle={
-            <span>
-              <span className="text-emerald-500 font-medium">{apiStats.active} active</span>
-              {" · "}
-              <span className="text-muted-foreground">{apiStats.inactive} inactive</span>
-            </span>
-          }
-        />
-
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <StatCard
           title="Total Leads (Filtered)"
           value={filteredLeads.length}
           subtitle="matching filters"
+          accent="primary"
           icon={<Users className="h-4 w-4 text-primary" />}
           isActive={cardFilter.scope === "filtered" && cardFilter.classification === "all"}
           onClick={() => handleCardClick({ scope: "filtered", classification: "all" })}
@@ -659,6 +661,7 @@ export function LeadsManagement() {
           title="Today's Leads"
           value={totalLeadsToday}
           subtitle="submissions today"
+          accent="primary"
           icon={<Phone className="h-4 w-4 text-primary" />}
           isActive={cardFilter.scope === "today" && cardFilter.classification === "all"}
           onClick={() => handleCardClick({ scope: "today", classification: "all" })}
@@ -668,6 +671,7 @@ export function LeadsManagement() {
           title="Successful DIDs"
           value={successfulDidsToday}
           valueClassName="text-emerald-500"
+          accent="emerald"
           subtitle={totalLeadsToday > 0 ? `${Math.round((successfulDidsToday / totalLeadsToday) * 100)}% success rate today` : "no leads today"}
           icon={<CheckCircle className="h-4 w-4 text-emerald-500" />}
           isActive={cardFilter.scope === "today" && cardFilter.classification === "success_did"}
@@ -678,6 +682,7 @@ export function LeadsManagement() {
           title="Successful, No DID"
           value={successNoDidToday}
           valueClassName="text-amber-500"
+          accent="amber"
           subtitle="API returned OK but no DID"
           icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
           isActive={cardFilter.scope === "today" && cardFilter.classification === "success_no_did"}
@@ -687,11 +692,28 @@ export function LeadsManagement() {
         <StatCard
           title="Failed Leads"
           value={failedToday}
-          valueClassName="text-destructive"
+          valueClassName="text-rose-500"
+          accent="rose"
           subtitle="API not returning correctly"
-          icon={<XCircle className="h-4 w-4 text-destructive" />}
+          icon={<XCircle className="h-4 w-4 text-rose-500" />}
           isActive={cardFilter.scope === "today" && cardFilter.classification === "failed"}
           onClick={() => handleCardClick({ scope: "today", classification: "failed" })}
+        />
+
+        <StatCard
+          title="Total APIs"
+          value={apiStats.total}
+          valueClassName="text-violet-500"
+          accent="violet"
+          icon={<Zap className="h-4 w-4 text-violet-500" />}
+          isActive={false}
+          subtitle={
+            <span>
+              <span className="text-emerald-500 font-medium">{apiStats.active} active</span>
+              {" · "}
+              <span className="text-muted-foreground">{apiStats.inactive} inactive</span>
+            </span>
+          }
         />
       </div>
 
