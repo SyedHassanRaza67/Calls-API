@@ -1044,7 +1044,7 @@ export function AgentWorkspace() {
 
       {/* Agent Fields Dialog */}
       <Dialog open={agentFieldsDialog.open} onOpenChange={(open) => setAgentFieldsDialog(prev => ({ ...prev, open }))}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserCheck className="h-5 w-5 text-primary" />
@@ -1054,10 +1054,10 @@ export function AgentWorkspace() {
               This campaign requires additional information before the API call.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
+          <div className="space-y-3 py-2 flex-1 overflow-y-auto pr-1">
             {agentFieldsDialog.fields.map((field) => (
               <div key={field.key} className="space-y-1">
-                <Label className="text-sm font-medium capitalize">{field.key}</Label>
+                <Label className="text-sm font-medium break-all">{field.key}</Label>
                 <Input
                   placeholder={`Enter ${field.key}`}
                   value={agentFieldsDialog.values[field.key] || ""}
