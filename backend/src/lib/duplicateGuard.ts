@@ -167,7 +167,7 @@ export async function recordSale(
        ) VALUES (
           $1, $2, $3, $4,
           $5, $6, $7,
-          $8, now() + ($8 || ' days')::interval
+          $8, now() + make_interval(days => $8)
        )
        ON CONFLICT (owner_admin_id, lower(dedupe_buyer), lower(dedupe_campaign), phone_key)
          WHERE released_at IS NULL
