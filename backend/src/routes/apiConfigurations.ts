@@ -17,6 +17,7 @@ const SAFE_COLS = [
   "created_by", "created_at", "updated_at", "custom_fields", "notes",
   "trackdrive_number", "trackdrive_number_id", "publisher_id",
   "ping_id_source_key", "ping_id_post_field", "buyer", "category", "sub_name", "campaign_section",
+  "buyer_code", "dedupe_enabled", "dedupe_days",
 ];
 
 /** Strip api_key from a row (safe projection for non-owners). */
@@ -89,6 +90,9 @@ const createSchema = z.object({
   trackdrive_number_id: z.string().optional().nullable(),
   ping_id_source_key: z.string().optional().nullable(),
   ping_id_post_field: z.string().optional().nullable(),
+  buyer_code: z.string().optional().nullable(),
+  dedupe_enabled: z.boolean().optional(),
+  dedupe_days: z.number().int().min(1).max(3650).optional(),
 });
 
 // POST /api/api-configurations — admin; create.
@@ -109,6 +113,7 @@ router.post(
       "http_method", "ping_url", "post_url", "is_active", "assigned_agents",
       "custom_fields", "notes", "buyer", "category", "sub_name", "campaign_section", "trackdrive_number", "trackdrive_number_id",
       "ping_id_source_key", "ping_id_post_field",
+      "buyer_code", "dedupe_enabled", "dedupe_days",
     ];
     for (const key of optional) {
       if (data[key] !== undefined) {

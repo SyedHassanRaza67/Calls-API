@@ -37,7 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { Loader2, Plus, Pencil, Trash2, Copy, Key, CheckCircle, XCircle, User, FlaskConical, AlertTriangle, ChevronDown, Link, Phone, MessageSquare, Send, UserCheck, Search, Zap } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Copy, Key, CheckCircle, XCircle, User, FlaskConical, AlertTriangle, ChevronDown, Link, Phone, MessageSquare, Send, UserCheck, Search, Zap, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -68,6 +68,8 @@ interface FormData {
   buyer: string;
   ping_id_source_key: string;
   ping_id_post_field: string;
+  dedupe_enabled: boolean;
+  dedupe_days: number;
 }
 
 const initialFormData: FormData = {
@@ -95,6 +97,8 @@ const initialFormData: FormData = {
   buyer: "",
   ping_id_source_key: "",
   ping_id_post_field: "",
+  dedupe_enabled: true,
+  dedupe_days: 30,
 };
 
 const httpMethodColors: Record<HttpMethod, string> = {
@@ -180,6 +184,16 @@ const ConfigTableRow = memo(({
           </>
         )}
       </Badge>
+      {config.dedupe_enabled !== false && (
+        <Badge
+          variant="outline"
+          className="mt-1 flex w-fit items-center bg-amber-500/15 text-amber-500 border-amber-500/30"
+          title={`Duplicate sales blocked for ${config.dedupe_days || 30} days`}
+        >
+          <ShieldCheck className="h-3 w-3 mr-1" />
+          {config.dedupe_days || 30}d
+        </Badge>
+      )}
     </TableCell>
     <TableCell className="text-muted-foreground text-sm">
       {format(new Date(config.created_at), "MMM d, yyyy")}
@@ -471,6 +485,31 @@ export function ApiConfigurations() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [configs, campaignSection]);
 
+  // Duplicate protection keys on buyer + campaign, and that pair can span
+  // several API configs (e.g. "D43 LA - Bathroom" and "D43 TX - Bathroom").
+  // Spell out the real scope so editing one config doesn't look like a bug.
+  const dedupeScopeLabel = useMemo(() => {
+    const prefix = (namePrefix === "__custom__" ? namePrefixCustom : namePrefix).trim();
+    const section = (campaignSection === "__custom__" ? campaignSectionCustom : campaignSection).trim();
+    const days = Number(formData.dedupe_days) > 0 ? Number(formData.dedupe_days) : 30;
+
+    if (!prefix) {
+      return `This API has no D-number in its Name, so duplicates are blocked against this API only, for ${days} days.`;
+    }
+    const pair = section ? `${prefix} · ${section}` : prefix;
+    const siblings = (configs ?? []).filter((c: any) => {
+      const cPrefix = ((c.buyer_code || "").trim()) || (((c.name || "").match(/^(D\d+)/) || [])[1] || "");
+      const cSection = (c.campaign_section || "").trim();
+      return cPrefix.toLowerCase() === prefix.toLowerCase()
+        && cSection.toLowerCase() === section.toLowerCase();
+    }).length;
+
+    return `Once a number sells on ${pair}, it can't be sent to ${pair} again for ${days} days. `
+      + (siblings > 1
+          ? `Applies across all ${siblings} APIs under ${pair}.`
+          : "Other campaigns are unaffected.");
+  }, [namePrefix, namePrefixCustom, campaignSection, campaignSectionCustom, configs, formData.dedupe_days]);
+
   // Compose full name from parts
   const composeCampaignName = (prefix: string, category: string, customCat: string, sub: string) => {
     const cat = category === "__custom__" ? customCat : category;
@@ -615,6 +654,8 @@ export function ApiConfigurations() {
         buyer: config.buyer || "",
         ping_id_source_key: config.ping_id_source_key || "",
         ping_id_post_field: config.ping_id_post_field || "",
+        dedupe_enabled: config.dedupe_enabled !== false,
+        dedupe_days: Number(config.dedupe_days) > 0 ? Number(config.dedupe_days) : 30,
       });
     } else {
       setEditingConfig(null);
@@ -830,6 +871,11 @@ export function ApiConfigurations() {
         sub_name: nameSubname.trim() || null,
         ping_id_source_key: formData.api_mode === "ping-post" ? (formData.ping_id_source_key.trim() || null) : null,
         ping_id_post_field: formData.api_mode === "ping-post" ? (formData.ping_id_post_field.trim() || null) : null,
+        // Persist the "D43" name prefix as its own column — duplicate protection
+        // keys on it, and until now it only existed inside the composed name.
+        buyer_code: (namePrefix === "__custom__" ? namePrefixCustom : namePrefix).trim() || null,
+        dedupe_enabled: formData.dedupe_enabled,
+        dedupe_days: Number(formData.dedupe_days) > 0 ? Number(formData.dedupe_days) : 30,
       };
 
       if (editingConfig) {
@@ -1281,6 +1327,58 @@ export function ApiConfigurations() {
                       });
                     }}
                   />
+                </div>
+
+                {/* Duplicate-sale protection */}
+                <div className="space-y-2 rounded-md border border-border/60 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="dedupe_enabled" className="text-xs">Block duplicate sales</Label>
+                      <p className="text-[10px] text-muted-foreground">
+                        Stops agents re-sending a number that already sold on this buyer + campaign
+                      </p>
+                    </div>
+                    <Switch
+                      id="dedupe_enabled"
+                      checked={formData.dedupe_enabled}
+                      onCheckedChange={(checked) => setFormData({ ...formData, dedupe_enabled: checked })}
+                    />
+                  </div>
+
+                  {formData.dedupe_enabled && (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="dedupe_days" className="text-xs whitespace-nowrap">Block for</Label>
+                        <Input
+                          id="dedupe_days"
+                          type="number"
+                          min={1}
+                          max={3650}
+                          value={formData.dedupe_days}
+                          onChange={(e) =>
+                            setFormData({ ...formData, dedupe_days: parseInt(e.target.value, 10) || 0 })
+                          }
+                          className="h-8 w-20"
+                        />
+                        <span className="text-xs text-muted-foreground">days</span>
+                        <div className="ml-auto flex gap-1">
+                          {[15, 30, 60].map((d) => (
+                            <Button
+                              key={d}
+                              type="button"
+                              size="sm"
+                              variant={formData.dedupe_days === d ? "default" : "outline"}
+                              className="h-7 px-2 text-xs"
+                              onClick={() => setFormData({ ...formData, dedupe_days: d })}
+                            >
+                              {d}d
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">{dedupeScopeLabel}</p>
+                    </div>
+                  )}
                 </div>
 
                   {isSuperAdmin && (

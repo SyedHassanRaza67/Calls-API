@@ -8,6 +8,7 @@ import { isSuperAdmin, isAdmin } from "../lib/authz";
 import { getAccessibleApiConfig } from "../lib/apiConfigAccess";
 import { runPingPost, normalizePhoneNumber } from "../lib/leadProvider";
 import { insertLead, updateLead } from "../lib/leadPersistence";
+import { findActiveBlock, blockResponse, recordSale } from "../lib/duplicateGuard";
 
 const router = Router();
 router.use(requireAuth);
@@ -105,6 +106,30 @@ router.post(
     const input = pingPostSchema.parse(req.body);
     const me = req.user!.id;
 
+    // ── Duplicate-sale guard ──────────────────────────────────────────────
+    // Runs before runPingPost so a blocked number never reaches the buyer.
+    // test_mode is exempt (it never persists, so it can never have sold).
+    let dedupeConfig: Record<string, unknown> | null = null;
+    let dedupePhone = input.caller_number;
+    if (input.api_configuration_id && !input.test_mode) {
+      dedupeConfig = await getAccessibleApiConfig(me, input.api_configuration_id);
+      if (dedupeConfig) {
+        // On the `post` leg the client sends only lead_id, so recover the
+        // number from the lead row that the earlier ping created.
+        if (!dedupePhone && input.lead_id) {
+          const { rows } = await query<{ caller_number: string }>(
+            "SELECT caller_number FROM leads WHERE id = $1 AND user_id = $2",
+            [input.lead_id, me]
+          );
+          dedupePhone = rows[0]?.caller_number ?? "";
+        }
+        const block = await findActiveBlock(dedupeConfig as any, dedupePhone, me);
+        if (block) {
+          return res.status(409).json(blockResponse(block, String(dedupeConfig.name ?? "")));
+        }
+      }
+    }
+
     const result = await runPingPost(input, (configId) => getAccessibleApiConfig(me, configId));
     const body = result.body as Record<string, unknown>;
 
@@ -129,6 +154,10 @@ router.post(
           api_response: withHttpStatus(body.raw, body.http_status),
         });
         body.lead_id = input.lead_id;
+        // The post leg is the actual sale — arm the duplicate block.
+        if (ok && did && dedupeConfig) {
+          await recordSale(dedupeConfig as any, dedupePhone, me, input.lead_id);
+        }
       }
       return res.status(result.status).json(body);
     }
@@ -166,6 +195,12 @@ router.post(
         ping_response: withHttpStatus(body.raw, body.http_status),
       });
       body.lead_id = leadId;
+
+      // ping-only / rtb are single-step, so a DID here IS the sale. A plain
+      // `ping` is only the first leg of ping/post — the post leg arms it.
+      if (input.action !== "ping" && ok && did && dedupeConfig) {
+        await recordSale(dedupeConfig as any, input.caller_number, me, leadId);
+      }
     } else {
       body.lead_id = null;
     }
@@ -234,6 +269,11 @@ router.post(
               api_response: body.raw,
             });
             body.lead_id = leadId;
+            // submit is single-step, so a DID here IS the sale. `apiConfig` is
+            // assigned below before any provider call can reach this closure.
+            if (ok && body.did && apiConfig) {
+              await recordSale(apiConfig, caller_number, me, leadId);
+            }
           }
         } catch (e) {
           console.error("submit lead persistence failed:", e);
@@ -254,6 +294,15 @@ router.post(
       }
       if (!apiConfig.is_active) {
         return res.status(400).json({ ok: false, error: "Selected campaign is no longer active" });
+      }
+
+      // Duplicate-sale guard — before any provider call, so a blocked number
+      // never reaches the buyer. Uses originalJson to bypass the persistence
+      // interceptor above: a rejected submission is not a lead.
+      const dupBlock = await findActiveBlock(apiConfig, caller_number, me);
+      if (dupBlock) {
+        res.status(409);
+        return originalJson(blockResponse(dupBlock, String(apiConfig.name ?? "")));
       }
 
       // Custom provider
