@@ -122,6 +122,41 @@ function ciGet(obj: unknown, ...keys: string[]): unknown {
   return undefined;
 }
 
+/**
+ * Some RTB endpoints don't return the number at the top level — they return a
+ * list of winning routes, e.g.
+ *   { success: true, eligible_routes: [ { number, payout, duration } ] }
+ * This digs the first usable route out of any of the common list wrappers.
+ * Used strictly as a fallback after the top-level lookup comes up empty, so
+ * existing providers keep their current behavior.
+ */
+const ROUTE_LIST_KEYS = [
+  "eligible_routes", "routes", "targets", "destinations", "bids",
+  "numbers", "results", "data",
+];
+const ROUTE_NUMBER_KEYS = [
+  "number", "phoneNumber", "phone_number", "inbound_number", "tracking_number",
+  "destination", "destination_number", "dial_number", "did", "routing_number",
+];
+
+function extractNestedRoute(data: unknown): { number?: string; payout?: unknown } {
+  if (!data || typeof data !== "object") return {};
+  for (const listKey of ROUTE_LIST_KEYS) {
+    const list = ciGet(data, listKey);
+    const entries = Array.isArray(list) ? list : list && typeof list === "object" ? [list] : [];
+    for (const entry of entries) {
+      const num = ciGet(entry, ...ROUTE_NUMBER_KEYS);
+      if (num !== undefined && num !== null && String(num).trim() !== "") {
+        return {
+          number: String(num),
+          payout: ciGet(entry, "payout", "price", "bid", "bidAmount", "dynamicBid"),
+        };
+      }
+    }
+  }
+  return {};
+}
+
 function sanitizeUrl(url: string): string {
   return url.replace(/^(GET|POST|PUT|PATCH|DELETE)\s+/i, "").trim();
 }
@@ -474,7 +509,8 @@ export async function runPingPost(
         responseData.did ||
         responseData.routing_number ||
         responseData.forwarding_number ||
-        responseData.dynamicSipAddress;
+        responseData.dynamicSipAddress ||
+        extractNestedRoute(responseData).number;
 
       const isSuccessResponse =
         responseData.code === 1000 ||
@@ -659,7 +695,8 @@ export async function runPingPost(
       responseData.inbound_number ||
       responseData.tracking_number ||
       responseData.did ||
-      responseData.routing_number;
+      responseData.routing_number ||
+      extractNestedRoute(responseData).number;
 
     if (trackingNumber) {
       return {
@@ -668,7 +705,7 @@ export async function runPingPost(
           ok: true,
           action: "ping-only",
           did: String(trackingNumber),
-          payout: responseData.payout || responseData.price || responseData.bid,
+          payout: responseData.payout || responseData.price || responseData.bid || extractNestedRoute(responseData).payout,
           raw: responseData,
           http_status: postUpstreamStatus,
         },
@@ -1159,9 +1196,9 @@ export async function runPingPost(
       "forwarding_number", "inbound_number", "number", "routing_number",
       "tracking_number", "phone_number", "phoneNumber", "destination_number",
       "dial_number", "did"
-    );
+    ) ?? extractNestedRoute(postData).number;
 
-    const payout = ciGet(postData, "payout", "price", "bid");
+    const payout = ciGet(postData, "payout", "price", "bid") ?? extractNestedRoute(postData).payout;
 
     // Case-insensitive success flag — e.g. PX returns { Success: true } and may
     // not echo a number; the agent then transfers to the campaign's forwarding DID.
@@ -1301,12 +1338,14 @@ export async function runPingPost(
     }
     const ringbaUpstreamStatus = ringbaResponse.status;
 
+    const ringbaNested = extractNestedRoute(ringbaData);
     const trackingNumber =
       ringbaData.phoneNumber || ringbaData.number || ringbaData.inbound_number ||
-      ringbaData.destination || ringbaData.tracking_number || ringbaData.did;
+      ringbaData.destination || ringbaData.tracking_number || ringbaData.did ||
+      ringbaNested.number;
 
     if (trackingNumber) {
-      return { status: 200, body: { ok: true, action: "rtb", did: trackingNumber, raw: ringbaData, http_status: ringbaUpstreamStatus } };
+      return { status: 200, body: { ok: true, action: "rtb", did: trackingNumber, payout: ringbaNested.payout, raw: ringbaData, http_status: ringbaUpstreamStatus } };
     } else if (ringbaData.bidAmount === 0 && ringbaData.rejectReason) {
       return {
         status: 200,
@@ -1388,15 +1427,18 @@ export async function runPingPost(
     }
     const customUpstreamStatus = customResponse.status;
 
+    const nestedRoute = extractNestedRoute(customData);
+
     const trackingNumber =
       customData.phoneNumber || customData.number || customData.inbound_number ||
-      customData.destination || customData.tracking_number || customData.did || customData.routing_number;
+      customData.destination || customData.tracking_number || customData.did || customData.routing_number ||
+      nestedRoute.number;
 
     const isCustomSuccess =
       customData.code === 1000 || customData.success === true || customData.status === "success" ||
       customData.status === "accepted" || customData.status === "reserved" || customData.status === "ok";
     const sipOrId = customData.dynamicSipAddress || customData.id;
-    const payout = customData.dynamicBid || customData.payout || customData.price || customData.bid;
+    const payout = customData.dynamicBid || customData.payout || customData.price || customData.bid || nestedRoute.payout;
 
     if (trackingNumber) {
       return { status: 200, body: { ok: true, action: "rtb", did: trackingNumber, payout, raw: customData, http_status: customUpstreamStatus } };
