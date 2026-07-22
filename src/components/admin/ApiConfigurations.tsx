@@ -37,7 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { Loader2, Plus, Pencil, Trash2, Copy, Key, CheckCircle, XCircle, User, FlaskConical, AlertTriangle, ChevronDown, Link, Phone, MessageSquare, Send, UserCheck, Search, Zap, ShieldCheck } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Copy, Key, CheckCircle, XCircle, User, FlaskConical, AlertTriangle, ChevronDown, Link, Phone, MessageSquare, Send, UserCheck, Search, Zap, ShieldCheck, Braces } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -63,7 +63,7 @@ interface FormData {
   trackdrive_number: string;
   http_method: HttpMethod;
   notes: string;
-  custom_fields: { key: string; value: string; enabled?: boolean; ask_agent?: boolean; stages?: { ping?: boolean; post?: boolean } }[];
+  custom_fields: { key: string; value: string; enabled?: boolean; ask_agent?: boolean; is_header?: boolean; stages?: { ping?: boolean; post?: boolean } }[];
   assigned_agents: string[];
   buyer: string;
   ping_id_source_key: string;
@@ -854,12 +854,13 @@ export function ApiConfigurations() {
         trackdrive_number: formData.trackdrive_number.trim() || null,
         http_method: formData.http_method,
         notes: formData.notes.trim() || null,
-        custom_fields: formData.custom_fields.length > 0 
-          ? formData.custom_fields.filter(f => f.key.trim()).map(({ key, value, enabled, ask_agent, stages }) => ({
+        custom_fields: formData.custom_fields.length > 0
+          ? formData.custom_fields.filter(f => f.key.trim()).map(({ key, value, enabled, ask_agent, is_header, stages }) => ({
               key,
               value,
               enabled: enabled !== false,
               ...(ask_agent ? { ask_agent: true } : {}),
+              ...(is_header ? { is_header: true } : {}),
               ...(formData.api_mode === "ping-post"
                 ? { stages: { ping: stages?.ping !== false, post: stages?.post !== false } }
                 : {}),
@@ -1499,7 +1500,7 @@ export function ApiConfigurations() {
                     Parameters
                   </Label>
                   <p className="text-[10px] text-muted-foreground">
-                    <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-blue-500/10 text-blue-600 text-[9px] font-medium">Form</span> = auto-filled from lead · <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-500/10 text-purple-600 text-[9px] font-medium">Agent</span> = filled at runtime · <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-muted text-muted-foreground text-[9px] font-medium">Static</span> = sent as-is
+                    <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-blue-500/10 text-blue-600 text-[9px] font-medium">Form</span> = auto-filled from lead · <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-purple-500/10 text-purple-600 text-[9px] font-medium">Agent</span> = filled at runtime · <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-muted text-muted-foreground text-[9px] font-medium">Static</span> = sent as-is · <span className="inline-flex items-center gap-0.5 px-1 py-px rounded bg-teal-500/10 text-teal-600 text-[9px] font-medium">Header</span> = sent as an HTTP header (click the <Braces className="h-2.5 w-2.5 inline" /> icon), not in the body/query
                   </p>
                   {formData.api_mode === "ping-post" && (
                     <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-900 space-y-1">
@@ -1562,13 +1563,15 @@ export function ApiConfigurations() {
                       />
                       {/* Type badge */}
                       <span className={`flex-shrink-0 w-12 text-center inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-medium ${
-                        field.ask_agent
-                          ? "bg-purple-500/10 text-purple-600"
-                          : field.value && field.value.includes("{{")
-                            ? "bg-blue-500/10 text-blue-600"
-                            : "bg-muted text-muted-foreground"
+                        field.is_header
+                          ? "bg-teal-500/10 text-teal-600"
+                          : field.ask_agent
+                            ? "bg-purple-500/10 text-purple-600"
+                            : field.value && field.value.includes("{{")
+                              ? "bg-blue-500/10 text-blue-600"
+                              : "bg-muted text-muted-foreground"
                       }`}>
-                        {field.ask_agent ? "Agent" : field.value && field.value.includes("{{") ? "Form" : "Static"}
+                        {field.is_header ? "Header" : field.ask_agent ? "Agent" : field.value && field.value.includes("{{") ? "Form" : "Static"}
                       </span>
                       {formData.api_mode === "ping-post" && (
                         <div className="flex-shrink-0 w-20 flex items-center justify-center gap-2">
@@ -1600,6 +1603,20 @@ export function ApiConfigurations() {
                           </label>
                         </div>
                       )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={`flex-shrink-0 h-7 w-7 ${field.is_header ? "text-teal-600" : "text-muted-foreground hover:text-foreground"}`}
+                        onClick={() => {
+                          const updated = [...formData.custom_fields];
+                          updated[index] = { ...updated[index], is_header: !updated[index].is_header };
+                          setFormData({ ...formData, custom_fields: updated });
+                        }}
+                        title={field.is_header ? "Sent as an HTTP header" : "Click to send as an HTTP header instead of body/query"}
+                      >
+                        <Braces className="h-3 w-3" />
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"

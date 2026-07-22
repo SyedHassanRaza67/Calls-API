@@ -184,6 +184,36 @@ function resolveFieldValue(
 }
 
 /**
+ * Splits a custom_fields list into HTTP-header specs (field.is_header) and
+ * body/query specs. Buyers like ClickThesis require auth (e.g. x-api-key) as
+ * a real request header, not a JSON body key — without this split the generic
+ * engine had no way to express that and always sent every field in the body.
+ */
+function partitionHeaderFields(fields: any[]): { headerSpecs: any[]; bodySpecs: any[] } {
+  const headerSpecs: any[] = [];
+  const bodySpecs: any[] = [];
+  for (const f of fields) (f.is_header ? headerSpecs : bodySpecs).push(f);
+  return { headerSpecs, bodySpecs };
+}
+
+function resolveHeaderFields(
+  headerSpecs: any[],
+  formattedNumber: string,
+  caller_state: string,
+  caller_zip: string,
+  apiConfig: any,
+  agentFields?: Record<string, string>,
+  rawDigits?: string
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const field of headerSpecs) {
+    if (!field.key) continue;
+    headers[field.key] = resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agentFields, rawDigits);
+  }
+  return headers;
+}
+
+/**
  * QuoteWizard requires the ping/post JSON to contain exactly one vertical
  * object under data.quoteRequest.item — autoInsuranceQuoteRequest,
  * homeInsuranceQuoteRequest or healthInsuranceQuoteRequest — matching the
@@ -571,6 +601,7 @@ export async function runPingPost(
 
     // POST request
     let requestBody: Record<string, unknown>;
+    let extraHeaders: Record<string, string> = {};
     if (isQuoteWizard) {
       requestBody = buildQuoteWizardBody(
         apiConfig, formattedNumber, caller_state, caller_zip, "ping", agent_fields, rawDigits
@@ -583,9 +614,11 @@ export async function runPingPost(
       if (apiConfig.trackdrive_number) requestBody.trackdrive_number = apiConfig.trackdrive_number.replace(/^\+/, "");
       if (apiConfig.trackdrive_number_id) requestBody.trackdrive_number_id = apiConfig.trackdrive_number_id;
     } else {
-      const customFields = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : []).filter(
+      const allFields = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : []).filter(
         (f: any) => f.enabled !== false
       );
+      const { headerSpecs, bodySpecs: customFields } = partitionHeaderFields(allFields);
+      extraHeaders = resolveHeaderFields(headerSpecs, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits);
       const hasTemplates = customFields.some((f: any) => f.value && /\{\{.+?\}\}/.test(f.value));
       if (hasTemplates) {
         requestBody = {};
@@ -642,7 +675,7 @@ export async function runPingPost(
 
     const response = await fetch(pingUrl, {
       method: ["GET", "HEAD"].includes(postMethod) ? "POST" : postMethod,
-      headers: { "Content-Type": contentType, Accept: "application/json" },
+      headers: { "Content-Type": contentType, Accept: "application/json", ...extraHeaders },
       body: fetchBody,
     });
 
@@ -821,6 +854,7 @@ export async function runPingPost(
     }
 
     let pingBody: Record<string, unknown>;
+    let pingExtraHeaders: Record<string, string> = {};
     if (apiProvider === "trackdrive") {
       const pingUrlClean = pingUrl.replace(/\/$/, "");
       const pingUrlParts = pingUrlClean.split("/");
@@ -838,9 +872,11 @@ export async function runPingPost(
         apiConfig, formattedNumber, caller_state, caller_zip, "ping", agent_fields, rawDigits
       );
     } else {
-      const customFields = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : [])
+      const allFields = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : [])
         .filter((f: any) => f.enabled !== false)
         .filter((f: any) => f.stages?.ping !== false);
+      const { headerSpecs, bodySpecs: customFields } = partitionHeaderFields(allFields);
+      pingExtraHeaders = resolveHeaderFields(headerSpecs, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits);
       const hasTemplates = customFields.some((f: any) => f.value && /\{\{.+?\}\}/.test(f.value));
       const nonMetaFields = customFields.filter((f: any) => f.key && !f.key.startsWith("_"));
       if (hasTemplates || nonMetaFields.length > 0) {
@@ -863,7 +899,7 @@ export async function runPingPost(
     const pingMethod = apiConfig.http_method || "POST";
     const pingResponse = await fetch(pingUrl, {
       method: ["GET", "HEAD"].includes(pingMethod) ? "POST" : pingMethod,
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json", ...pingExtraHeaders },
       body: JSON.stringify(pingBody),
     });
 
@@ -1075,6 +1111,7 @@ export async function runPingPost(
     }
 
     let postBody: Record<string, unknown>;
+    let postExtraHeaders: Record<string, string> = {};
     if (apiProvider === "trackdrive") {
       const postUrlParts = postUrl.split("/");
       const vanityUri = postUrlParts[postUrlParts.length - 1]?.split("?")[0];
@@ -1087,9 +1124,11 @@ export async function runPingPost(
       );
       if (external_lead_id) postBody.pingID = external_lead_id;
     } else {
-      const allCustomFields = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : []).filter(
+      const allEnabledFields = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : []).filter(
         (f: any) => f.enabled !== false
       );
+      const { headerSpecs, bodySpecs: allCustomFields } = partitionHeaderFields(allEnabledFields);
+      postExtraHeaders = resolveHeaderFields(headerSpecs, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits);
       const hasExplicitStages = allCustomFields.some(
         (f: any) => f.stages && (f.stages.ping !== undefined || f.stages.post !== undefined)
       );
@@ -1166,7 +1205,7 @@ export async function runPingPost(
 
     const postResponse = await fetch(postUrl, {
       method: ["GET", "HEAD"].includes(postHttpMethod) ? "POST" : postHttpMethod,
-      headers: { "Content-Type": postContentType, Accept: "application/json" },
+      headers: { "Content-Type": postContentType, Accept: "application/json", ...postExtraHeaders },
       body: postFetchBody,
     });
 
@@ -1368,16 +1407,19 @@ export async function runPingPost(
     const rawUrl = sanitizeUrl(apiConfig.ping_url);
     const httpMethod = (apiConfig.http_method || "GET").toUpperCase();
     const customParams: Record<string, string> = {};
+    const customHeaders: Record<string, string> = {};
     if (Array.isArray(apiConfig.custom_fields)) {
       for (const field of apiConfig.custom_fields) {
         if (field.key && field.enabled !== false) {
-          customParams[field.key] = resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits);
+          const resolved = resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits);
+          if (field.is_header) customHeaders[field.key] = resolved;
+          else customParams[field.key] = resolved;
         }
       }
     }
 
     let customRtbUrl = rawUrl;
-    const fetchOptions: RequestInit = { method: httpMethod, headers: { Accept: "application/json" } };
+    const fetchOptions: RequestInit = { method: httpMethod, headers: { Accept: "application/json", ...customHeaders } };
     const bodyFormatField = Array.isArray(apiConfig.custom_fields) && apiConfig.custom_fields.find((f: any) => f.key === "_body_format");
     const useFormEncoding = bodyFormatField ? bodyFormatField.value === "form" : false;
 
