@@ -123,38 +123,178 @@ function ciGet(obj: unknown, ...keys: string[]): unknown {
 }
 
 /**
- * Some RTB endpoints don't return the number at the top level — they return a
- * list of winning routes, e.g.
- *   { success: true, eligible_routes: [ { number, payout, duration } ] }
- * This digs the first usable route out of any of the common list wrappers.
- * Used strictly as a fallback after the top-level lookup comes up empty, so
- * existing providers keep their current behavior.
+ * Every field name a buyer might use for "the number to dial", in priority
+ * order. Shared by ALL branches (ping / ping-only / post / RTB) so a provider
+ * that names the field differently is understood everywhere, not just in the
+ * one branch that happened to list it. Matching ignores case AND separators
+ * (see looseGet), so one entry here covers tracking_number / trackingNumber /
+ * TrackingNumber / tracking-number without extra entries.
+ *
+ * Ordering matters when a response carries more than one number:
+ *   - Dedicated routing/tracking fields come FIRST — they are what the buyer
+ *     wants the call placed to, and what gets attributed/paid.
+ *   - `completionPhoneNumber` (the buyer's tracking DID) outranks
+ *     `displayPhoneNumber` (the business's own public line). Dialing the display
+ *     number connects the caller but is typically NOT tracked by the buyer, so
+ *     it is deliberately the LAST resort.
  */
-const ROUTE_LIST_KEYS = [
-  "eligible_routes", "routes", "targets", "destinations", "bids",
-  "numbers", "results", "data",
-];
-const ROUTE_NUMBER_KEYS = [
-  "number", "phoneNumber", "phone_number", "inbound_number", "tracking_number",
-  "destination", "destination_number", "dial_number", "did", "routing_number",
+const TRACKING_NUMBER_KEYS = [
+  "forwarding_number", "inbound_number", "tracking_number", "routing_number",
+  "destination_number", "dial_number", "did",
+  "completion_phone_number",
+  "number", "phone_number", "destination",
+  "display_phone_number",
 ];
 
-function extractNestedRoute(data: unknown): { number?: string; payout?: unknown } {
+/** Fields carrying the bid/payout, in priority order. Shared like the above. */
+const PAYOUT_KEYS = ["payout", "price", "bid", "bidAmount", "dynamicBid", "revenue"];
+
+/**
+ * Object keys that hold an ECHO of what we sent (our own caller's details)
+ * rather than a route to dial. Never descend into these — routing a call to the
+ * caller's own number would dial the customer back on themselves.
+ */
+const ECHO_KEYS = new Set([
+  "caller", "lead", "input", "request", "customer", "contact", "consumer",
+  "sender", "from", "payload", "echo", "original", "query", "params", "submitted",
+]);
+
+/** Wrappers that commonly hold a list of winning routes/businesses. */
+const ROUTE_LIST_KEYS = [
+  "eligible_routes", "routes", "targets", "destinations", "bids",
+  "numbers", "results", "data", "businesses", "buyers", "matches", "offers",
+  "listings", "providers", "items",
+];
+
+/** Normalize to comparable digits (drops +, dashes, spaces, and a leading US 1). */
+function digitsOf(v: string): string {
+  const d = v.replace(/\D/g, "");
+  return d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+}
+
+/**
+ * Field-name lookup that ignores BOTH case and separators, so one entry in
+ * TRACKING_NUMBER_KEYS matches every spelling a buyer might ship:
+ *   tracking_number / trackingNumber / TrackingNumber / tracking-number
+ * (plain ciGet only handled case, so PascalCase without an underscore missed.)
+ */
+function normKey(k: string): string {
+  return k.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function looseGet(obj: unknown, ...keys: string[]): unknown {
+  if (!obj || typeof obj !== "object") return undefined;
+  const flat: Record<string, unknown> = {};
+  for (const k of Object.keys(obj as Record<string, unknown>)) {
+    const nk = normKey(k);
+    if (!(nk in flat)) flat[nk] = (obj as Record<string, unknown>)[k];
+  }
+  for (const k of keys) {
+    const v = flat[normKey(k)];
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
+/**
+ * Accept a value only if it can actually be dialed: a phone number (7–15
+ * digits) or a SIP address. Rejects nulls, empty strings, and non-phone junk
+ * like ids/slugs, so a stray field never gets handed to an agent as a DID.
+ */
+function asDialable(v: unknown): string | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === "object") return undefined;
+  const s = String(v).trim();
+  if (!s) return undefined;
+  if (s.includes("@")) return s; // SIP address, e.g. sip:123@carrier.com
+  const digits = digitsOf(s);
+  if (digits.length < 7 || digits.length > 15) return undefined;
+  return s;
+}
+
+/**
+ * Pull the first dialable number off a single object, honoring an optional
+ * per-provider priority prefix (so e.g. Ringba keeps preferring `phoneNumber`)
+ * before falling back to the shared list. `excludeDigits` is the caller's own
+ * number — never route a call back to the person making it.
+ */
+function pickNumberFrom(
+  obj: unknown,
+  priority: string[],
+  excludeDigits?: string
+): string | undefined {
+  if (!obj || typeof obj !== "object") return undefined;
+  for (const key of [...priority, ...TRACKING_NUMBER_KEYS]) {
+    const hit = asDialable(looseGet(obj, key));
+    if (!hit) continue;
+    if (excludeDigits && digitsOf(hit) === excludeDigits) continue;
+    return hit;
+  }
+  return undefined;
+}
+
+/**
+ * Some endpoints don't return the number at the top level — they nest it under
+ * a list of winning routes or businesses, e.g.
+ *   { success: true, eligible_routes: [ { number, payout, duration } ] }
+ *   { summary: {...}, businesses: [ { completionPhoneNumber, ... } ] }
+ * Walks the response breadth-first (shallowest match wins) up to MAX_DEPTH,
+ * skipping ECHO_KEYS. Known list wrappers are searched first so the payout
+ * stays paired with the route it came from.
+ */
+const MAX_NEST_DEPTH = 4;
+
+function extractNestedRoute(
+  data: unknown,
+  excludeDigits?: string,
+  priority: string[] = []
+): { number?: string; payout?: unknown } {
   if (!data || typeof data !== "object") return {};
+
+  // Pass 1 — known list wrappers, one level down (previous behavior, extended).
   for (const listKey of ROUTE_LIST_KEYS) {
     const list = ciGet(data, listKey);
     const entries = Array.isArray(list) ? list : list && typeof list === "object" ? [list] : [];
     for (const entry of entries) {
-      const num = ciGet(entry, ...ROUTE_NUMBER_KEYS);
-      if (num !== undefined && num !== null && String(num).trim() !== "") {
-        return {
-          number: String(num),
-          payout: ciGet(entry, "payout", "price", "bid", "bidAmount", "dynamicBid"),
-        };
-      }
+      const num = pickNumberFrom(entry, priority, excludeDigits);
+      if (num) return { number: num, payout: looseGet(entry, ...PAYOUT_KEYS) };
     }
   }
+
+  // Pass 2 — bounded breadth-first walk for anything shaped differently.
+  let frontier: unknown[] = [data];
+  for (let depth = 0; depth < MAX_NEST_DEPTH && frontier.length; depth++) {
+    const next: unknown[] = [];
+    for (const node of frontier) {
+      if (!node || typeof node !== "object") continue;
+      if (Array.isArray(node)) {
+        next.push(...node);
+        continue;
+      }
+      const num = pickNumberFrom(node, priority, excludeDigits);
+      if (num) return { number: num, payout: looseGet(node, ...PAYOUT_KEYS) };
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        if (ECHO_KEYS.has(k.toLowerCase())) continue;
+        if (v && typeof v === "object") next.push(v);
+      }
+    }
+    frontier = next;
+  }
   return {};
+}
+
+/**
+ * The single entry point every branch uses: top-level lookup (provider priority
+ * first, then the shared key list) and, failing that, the nested search.
+ */
+function extractTrackingNumber(
+  data: unknown,
+  opts: { priority?: string[]; excludeDigits?: string } = {}
+): { number?: string; payout?: unknown } {
+  const { priority = [], excludeDigits } = opts;
+  const top = pickNumberFrom(data, priority, excludeDigits);
+  if (top) return { number: top, payout: looseGet(data, ...PAYOUT_KEYS) };
+  return extractNestedRoute(data, excludeDigits, priority);
 }
 
 function sanitizeUrl(url: string): string {
@@ -418,6 +558,10 @@ export async function runPingPost(
   const apiProvider = apiConfig.api_provider || "retreaver";
   let formattedNumber = normalizePhoneNumber(caller_number);
   const rawDigits = caller_number.replace(/\D/g, "");
+  // The caller's own number, normalized for comparison. Passed to every number
+  // extractor so a response that merely echoes the caller ID can never be
+  // mistaken for a route (which would dial the customer back on themselves).
+  const callerDigits = digitsOf(rawDigits);
 
   // Phone number format ("how we send phone / caller ID"): apply the campaign's
   // _phone_format meta field to the {{phone}} token / caller_id. Defaults to digits.
@@ -532,15 +676,15 @@ export async function runPingPost(
       }
       const upstreamStatus = response.status;
 
-      const trackingNumber =
-        responseData.number ||
-        responseData.inbound_number ||
-        responseData.tracking_number ||
-        responseData.did ||
-        responseData.routing_number ||
-        responseData.forwarding_number ||
-        responseData.dynamicSipAddress ||
-        extractNestedRoute(responseData).number;
+      // Precedence is deliberate and matches the previous behavior: a top-level
+      // number wins, then a SIP address, and only then the nested search — so a
+      // provider that returns a SIP route keeps getting it.
+      const pingOnlyPriority = ["number", "inbound_number", "tracking_number", "did", "routing_number", "forwarding_number"];
+      const pingOnlyTopLevel = pickNumberFrom(responseData, pingOnlyPriority, callerDigits);
+      const pingOnlyRoute = pingOnlyTopLevel
+        ? { number: pingOnlyTopLevel, payout: looseGet(responseData, ...PAYOUT_KEYS) }
+        : extractNestedRoute(responseData, callerDigits, pingOnlyPriority);
+      const trackingNumber = pingOnlyTopLevel || responseData.dynamicSipAddress || pingOnlyRoute.number;
 
       const isSuccessResponse =
         responseData.code === 1000 ||
@@ -557,7 +701,9 @@ export async function runPingPost(
             ok: true,
             action: "ping-only",
             did: String(trackingNumber),
-            payout: responseData.payout || responseData.price || responseData.bid || responseData.dynamicBid,
+            payout:
+              responseData.payout || responseData.price || responseData.bid ||
+              responseData.dynamicBid || pingOnlyRoute.payout,
             raw: responseData,
             http_status: upstreamStatus,
           },
@@ -723,13 +869,11 @@ export async function runPingPost(
       }
     }
 
-    const trackingNumber =
-      responseData.number ||
-      responseData.inbound_number ||
-      responseData.tracking_number ||
-      responseData.did ||
-      responseData.routing_number ||
-      extractNestedRoute(responseData).number;
+    const postOnlyRoute = extractTrackingNumber(responseData, {
+      priority: ["number", "inbound_number", "tracking_number", "did", "routing_number"],
+      excludeDigits: callerDigits,
+    });
+    const trackingNumber = postOnlyRoute.number;
 
     if (trackingNumber) {
       return {
@@ -738,7 +882,7 @@ export async function runPingPost(
           ok: true,
           action: "ping-only",
           did: String(trackingNumber),
-          payout: responseData.payout || responseData.price || responseData.bid || extractNestedRoute(responseData).payout,
+          payout: responseData.payout || responseData.price || responseData.bid || postOnlyRoute.payout,
           raw: responseData,
           http_status: postUpstreamStatus,
         },
@@ -986,7 +1130,13 @@ export async function runPingPost(
       }
     }
 
-    const pingDid = (pingData.inbound_number || pingData.number || pingData.routing_number || pingData.tracking_number || pingData.did || pingData.phoneNumber) as string | undefined;
+    // Previously this was a top-level-only, case-sensitive lookup with no nested
+    // fallback — a ping that returned its number inside a list/object was read as
+    // "no DID". extractTrackingNumber covers both shapes.
+    const pingDid = extractTrackingNumber(pingData, {
+      priority: ["inbound_number", "number", "routing_number", "tracking_number", "did", "phoneNumber"],
+      excludeDigits: callerDigits,
+    }).number;
     if (pingDid) {
       return {
         status: 200,
@@ -1090,7 +1240,11 @@ export async function runPingPost(
       }
 
       const sdPayload = (sdData && typeof sdData === "object" ? (sdData as any).data : undefined) || {};
-      const phone = sdPayload.phone_number;
+      // SD's documented shape is data.phone_number; fall back to the shared
+      // extractor if it ever moves or gets nested deeper.
+      const phone =
+        sdPayload.phone_number ||
+        extractTrackingNumber(sdData, { excludeDigits: callerDigits }).number;
       if (phone) {
         const finalDid = String(phone);
         if (lead_id) {
@@ -1230,14 +1384,17 @@ export async function runPingPost(
       };
     }
 
-    const trackingNumber = ciGet(
-      postData,
-      "forwarding_number", "inbound_number", "number", "routing_number",
-      "tracking_number", "phone_number", "phoneNumber", "destination_number",
-      "dial_number", "did"
-    ) ?? extractNestedRoute(postData).number;
+    const postRoute = extractTrackingNumber(postData, {
+      priority: [
+        "forwarding_number", "inbound_number", "number", "routing_number",
+        "tracking_number", "phone_number", "phoneNumber", "destination_number",
+        "dial_number", "did",
+      ],
+      excludeDigits: callerDigits,
+    });
+    const trackingNumber = postRoute.number;
 
-    const payout = ciGet(postData, "payout", "price", "bid") ?? extractNestedRoute(postData).payout;
+    const payout = ciGet(postData, "payout", "price", "bid") ?? postRoute.payout;
 
     // Case-insensitive success flag — e.g. PX returns { Success: true } and may
     // not echo a number; the agent then transfers to the campaign's forwarding DID.
@@ -1377,14 +1534,14 @@ export async function runPingPost(
     }
     const ringbaUpstreamStatus = ringbaResponse.status;
 
-    const ringbaNested = extractNestedRoute(ringbaData);
-    const trackingNumber =
-      ringbaData.phoneNumber || ringbaData.number || ringbaData.inbound_number ||
-      ringbaData.destination || ringbaData.tracking_number || ringbaData.did ||
-      ringbaNested.number;
+    const ringbaRoute = extractTrackingNumber(ringbaData, {
+      priority: ["phoneNumber", "number", "inbound_number", "destination", "tracking_number", "did"],
+      excludeDigits: callerDigits,
+    });
+    const trackingNumber = ringbaRoute.number;
 
     if (trackingNumber) {
-      return { status: 200, body: { ok: true, action: "rtb", did: trackingNumber, payout: ringbaNested.payout, raw: ringbaData, http_status: ringbaUpstreamStatus } };
+      return { status: 200, body: { ok: true, action: "rtb", did: trackingNumber, payout: ringbaRoute.payout, raw: ringbaData, http_status: ringbaUpstreamStatus } };
     } else if (ringbaData.bidAmount === 0 && ringbaData.rejectReason) {
       return {
         status: 200,
@@ -1469,12 +1626,15 @@ export async function runPingPost(
     }
     const customUpstreamStatus = customResponse.status;
 
-    const nestedRoute = extractNestedRoute(customData);
+    const nestedRoute = extractTrackingNumber(customData, {
+      priority: [
+        "phoneNumber", "number", "inbound_number", "destination",
+        "tracking_number", "did", "routing_number",
+      ],
+      excludeDigits: callerDigits,
+    });
 
-    const trackingNumber =
-      customData.phoneNumber || customData.number || customData.inbound_number ||
-      customData.destination || customData.tracking_number || customData.did || customData.routing_number ||
-      nestedRoute.number;
+    const trackingNumber = nestedRoute.number;
 
     const isCustomSuccess =
       customData.code === 1000 || customData.success === true || customData.status === "success" ||
@@ -1561,12 +1721,14 @@ export async function runPingPost(
     }
     const retreavUpstreamStatus = response.status;
 
-    const trackingNumber =
-      responseData.inbound_number || responseData.number || responseData.routing_number ||
-      responseData.tracking_number || responseData.did;
+    const retreaverRoute = extractTrackingNumber(responseData, {
+      priority: ["inbound_number", "number", "routing_number", "tracking_number", "did"],
+      excludeDigits: callerDigits,
+    });
+    const trackingNumber = retreaverRoute.number;
 
     if (trackingNumber) {
-      return { status: 200, body: { ok: true, action: "rtb", did: trackingNumber, raw: responseData, http_status: retreavUpstreamStatus } };
+      return { status: 200, body: { ok: true, action: "rtb", did: trackingNumber, payout: retreaverRoute.payout, raw: responseData, http_status: retreavUpstreamStatus } };
     } else {
       const errorMsg = responseData.error || responseData.info || responseData.message || "No tracking number returned";
       return {
