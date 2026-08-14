@@ -460,6 +460,78 @@ function normalizeLeadspediaFields(
   return normalized;
 }
 
+/**
+ * Delivery-only ("post only") campaigns — buyers that just ACCEPT the data and
+ * never hand back a number to dial (lead posts, tag/enrichment endpoints, …).
+ *
+ * The engine's success test everywhere else is "did a dialable number come
+ * back?", so these campaigns always surfaced to the agent as red
+ * "200 OK — API call failed" even though the buyer stored the lead. An admin
+ * opts a campaign in with the `_post_only` meta custom field (same convention as
+ * `_hide_response` / `_phone_format`), and the response is then judged on the
+ * upstream HTTP status instead of on the presence of a DID.
+ */
+function isPostOnlyConfig(apiConfig: any): boolean {
+  const fields = Array.isArray(apiConfig?.custom_fields) ? apiConfig.custom_fields : [];
+  return fields.some(
+    (f: any) => f?.key === "_post_only" && (f.value === "1" || f.value === true || f.value === "true")
+  );
+}
+
+/** Status words that mean the buyer REJECTED the data — those stay failures. */
+const POST_ONLY_REJECT_STATUSES = new Set([
+  "rejected", "declined", "denied", "error", "failed", "failure", "invalid",
+  "duplicate", "unauthorized", "forbidden",
+]);
+
+/**
+ * True only when the body explicitly says the data was NOT accepted. A bare ack,
+ * an informational note ("call not found, tags stored"), or an empty object all
+ * count as delivered for a delivery-only campaign.
+ */
+function hasExplicitRejection(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const successFlag = ciGet(raw, "success", "accepted");
+  if (successFlag === false || successFlag === "false") return true;
+  const statusVal = String(ciGet(raw, "status") ?? "").trim().toLowerCase();
+  if (POST_ONLY_REJECT_STATUSES.has(statusVal)) return true;
+  const err = ciGet(raw, "error");
+  if (typeof err === "string" && err.trim()) return true;
+  if (err && typeof err === "object") return true;
+  const errs = ciGet(raw, "errors");
+  if (Array.isArray(errs) && errs.length > 0) return true;
+  return false;
+}
+
+/**
+ * Re-reads a "no tracking number returned" outcome as a success for a
+ * delivery-only campaign. Deliberately conservative: it only fires when the
+ * buyer actually answered with a 2xx (http_status is absent on transport errors
+ * and on the engine's own pre-flight validation failures) and did not reject.
+ */
+function applyPostOnlyOutcome(result: LeadResult, action: PingPostInput["action"]): LeadResult {
+  const body = result.body as Record<string, unknown>;
+  if (!body || body.ok === true) return result;
+
+  const httpStatus = body.http_status;
+  if (typeof httpStatus !== "number" || httpStatus < 200 || httpStatus >= 300) return result;
+  if (hasExplicitRejection(body.raw)) return result;
+
+  const { error: _discardedError, ...rest } = body;
+  return {
+    status: result.status,
+    body: {
+      ...rest,
+      ok: true,
+      delivery_only: true,
+      // No bid exists to win here, but the ping leg of a ping/post flow still
+      // has to read as "accepted" so the post leg can run.
+      ...(action === "ping" ? { has_bid: true } : {}),
+      message: "Data delivered — this API does not return a number",
+    },
+  };
+}
+
 export interface PingPostInput {
   action: "ping" | "post" | "ping-only" | "rtb";
   api_configuration_id?: string;
@@ -474,12 +546,29 @@ export interface PingPostInput {
 }
 
 /**
- * Runs the ping/post/ping-only/rtb flow. `resolveConfig` is invoked to fetch &
- * authorize the api_configuration when not in test mode (returns the row or null).
+ * Runs the ping/post/ping-only/rtb flow, then applies the delivery-only
+ * reinterpretation for campaigns flagged `_post_only` (see isPostOnlyConfig).
+ * `resolveConfig` is invoked to fetch & authorize the api_configuration when not
+ * in test mode (returns the row or null).
  */
 export async function runPingPost(
   input: PingPostInput,
   resolveConfig: (configId: string) => Promise<Record<string, unknown> | null>
+): Promise<LeadResult> {
+  const ctx: { apiConfig?: any } = {};
+  const result = await runPingPostCore(input, resolveConfig, ctx);
+  if (!isPostOnlyConfig(ctx.apiConfig)) return result;
+  return applyPostOnlyOutcome(result, input.action);
+}
+
+/**
+ * The provider engine itself. `ctx` receives the resolved api_configuration so
+ * the wrapper above can inspect its settings without fetching it twice.
+ */
+async function runPingPostCore(
+  input: PingPostInput,
+  resolveConfig: (configId: string) => Promise<Record<string, unknown> | null>,
+  ctx: { apiConfig?: any }
 ): Promise<LeadResult> {
   const {
     action,
@@ -540,6 +629,7 @@ export async function runPingPost(
     }
     apiConfig = configData;
   }
+  ctx.apiConfig = apiConfig;
 
   if (apiConfig.ping_url) apiConfig.ping_url = sanitizeUrl(apiConfig.ping_url);
   if (apiConfig.post_url) apiConfig.post_url = sanitizeUrl(apiConfig.post_url);

@@ -606,8 +606,12 @@ export function AgentWorkspace() {
 
           const postHttpStatus = postData?.http_status as number | undefined;
           const postFailFallback = postData?.ok === false ? "Post failed" : "Post succeeded but no DID returned";
+          // Delivery-only campaigns ("Post only" in the API settings) accept the
+          // data and never return a number — that is a success, not a failure.
           const result: CampaignResult = did
             ? { status: "success", did: String(did), raw: combinedRaw, httpStatus: postHttpStatus }
+            : postData?.delivery_only === true
+            ? { status: "success", raw: combinedRaw, httpStatus: postHttpStatus }
             : { status: "failed", error: toErrorString(postData?.error, postFailFallback), raw: combinedRaw, httpStatus: postHttpStatus };
           updateSubmission(submissionId, campaignId, result);
           showResultDialog(result);
@@ -617,6 +621,13 @@ export function AgentWorkspace() {
           } else {
             toast({ title: "API Call Successful", description: "Check response for details" });
           }
+        } else if (funcData?.delivery_only === true) {
+          // Delivery-only campaign ("Post only"): the buyer accepted the data and
+          // returns neither a bid nor a token, so there is nothing left to post.
+          const deliveredResult: CampaignResult = { status: "success", raw: pingRaw, httpStatus: funcData?.http_status as number | undefined };
+          updateSubmission(submissionId, campaignId, deliveredResult);
+          showResultDialog(deliveredResult);
+          toast({ title: "Data Delivered", description: "This API does not return a number" });
         } else {
           // Ping failed or no bid
           { const failedResult: CampaignResult = { status: "failed", error: toErrorString(funcData?.error, "No bid received"), raw: pingRaw, httpStatus: funcData?.http_status as number | undefined };
@@ -1006,6 +1017,14 @@ export function AgentWorkspace() {
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
+            </div>
+          )}
+          {/* Delivery-only campaigns succeed without a number — say so, so the
+              agent isn't left looking for a tracking number that never comes. */}
+          {responseDialog.result?.status === "success" && !responseDialog.did && !responseDialog.forwardingNumber && (
+            <div className="flex items-center gap-2 p-2 rounded-md bg-emerald-50 border border-emerald-200">
+              <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+              <span className="text-sm text-emerald-700">Data delivered — this API does not return a number</span>
             </div>
           )}
           {responseDialog.callerNumber && (

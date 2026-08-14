@@ -71,7 +71,10 @@ function groupLeads(data: any[]): PersistedSubmission[] {
         displayRaw = rest;
       }
       group.campaignResults[lead.api_configuration_id] = {
-        status: (lead.status === "success" && lead.returned_did) ? "success" : lead.status === "pending" ? "idle" : "failed",
+        // A DID is no longer required for "success": delivery-only campaigns
+        // ("Post only") are stored as success with no returned_did, and the
+        // backend only writes status='success' when the call actually succeeded.
+        status: lead.status === "success" ? "success" : lead.status === "pending" ? "idle" : "failed",
         did: lead.returned_did || undefined,
         raw: displayRaw,
         httpStatus,

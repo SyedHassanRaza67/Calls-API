@@ -770,6 +770,14 @@ export function ApiConfigurations() {
         return;
       }
 
+      // A delivery-only campaign (_post_only) has no bid or ping token to carry
+      // into a post — the ping call itself IS the delivery, so stop here green.
+      if (pingData?.delivery_only === true) {
+        setTestResult({ success: true, message: "Success — data delivered (this API returns no number)", details: pingData });
+        setIsTestResultOpen(true);
+        return;
+      }
+
       if (pingData?.ok === false || !pingData?.has_bid || !pingData?.external_lead_id) {
         setTestResult({ success: false, message: (typeof pingData?.error === "string" ? pingData.error : JSON.stringify(pingData?.error)) || "Ping did not return an accepted buyer", details: { ping: pingData } });
         setIsTestResultOpen(true);
@@ -1330,6 +1338,30 @@ export function ApiConfigurations() {
                   />
                 </div>
 
+                {/* Delivery-only APIs: judged on HTTP 2xx, not on a returned DID.
+                    Backed by the `_post_only` meta custom field. */}
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="post_only" className="text-xs">Post only (no number returned)</Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      For APIs that only accept data. A 2xx response counts as success (green) instead of "no tracking number returned"
+                    </p>
+                  </div>
+                  <Switch
+                    id="post_only"
+                    checked={formData.custom_fields.some(f => f.key === "_post_only" && (f.value === "1" || f.value === "true"))}
+                    onCheckedChange={(checked) => {
+                      const filtered = formData.custom_fields.filter(f => f.key !== "_post_only");
+                      setFormData({
+                        ...formData,
+                        custom_fields: checked
+                          ? [...filtered, { key: "_post_only", value: "1", enabled: true }]
+                          : filtered,
+                      });
+                    }}
+                  />
+                </div>
+
                 {/* Duplicate-sale protection */}
                 <div className="space-y-2 rounded-md border border-border/60 p-3">
                   <div className="flex items-center justify-between">
@@ -1528,7 +1560,7 @@ export function ApiConfigurations() {
                   )}
                   {formData.custom_fields
                     .map((field, index) => ({ field, index }))
-                    .filter(({ field }) => field.key !== "_hide_response")
+                    .filter(({ field }) => field.key !== "_hide_response" && field.key !== "_post_only")
                     .map(({ field, index }) => (
                     <div key={index} className={`flex items-center gap-1.5 ${field.enabled === false ? "opacity-40" : ""}`}>
                       <Checkbox
