@@ -69,6 +69,14 @@ async function request<T = unknown>(
     throw new ApiError(0, err instanceof Error ? err.message : "Network error");
   }
 
+  // Sliding session: the backend re-issues a token once ours is a day old.
+  // Only adopt it if the stored token is still the one we sent, so a slow
+  // response can't overwrite a sign-in/sign-out done meanwhile in another tab.
+  const refreshed = resp.headers.get("X-Refreshed-Token");
+  if (refreshed && token && getToken() === token) {
+    setToken(refreshed);
+  }
+
   // 401 → clear token so the app routes back to /auth.
   if (resp.status === 401) {
     clearToken();

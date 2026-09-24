@@ -4,6 +4,7 @@ import { config } from "../config";
 export interface JwtPayload {
   sub: string; // user id
   email: string;
+  iat?: number; // issued-at (seconds), set by jsonwebtoken
 }
 
 export function signToken(payload: JwtPayload): string {

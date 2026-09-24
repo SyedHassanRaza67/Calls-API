@@ -899,7 +899,16 @@ export function ApiConfigurations() {
       invalidateApiConfigs();
     } catch (error) {
       console.error("Error saving:", error);
-      toast({ title: "Error", description: "Failed to save API configuration", variant: "destructive" });
+      if (error instanceof ApiError && error.status === 401) {
+        // Dialog stays open so the edits survive a re-login in another tab.
+        toast({
+          title: "Session expired",
+          description: "Your login has expired. Sign in again in a new tab, then come back and click Update — your changes are kept.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Error", description: "Failed to save API configuration", variant: "destructive" });
+      }
     } finally {
       setIsSaving(false);
     }
