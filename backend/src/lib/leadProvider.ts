@@ -722,7 +722,8 @@ async function runPingPostCore(
         if (apiConfig.api_key) urlObj.searchParams.set("api_key", apiConfig.api_key);
         if (Array.isArray(apiConfig.custom_fields)) {
           for (const field of apiConfig.custom_fields) {
-            if (field.key && field.enabled !== false) urlObj.searchParams.set(field.key, field.value);
+            if (!field.key || field.enabled === false || field.is_header || field.key.startsWith("_")) continue;
+            urlObj.searchParams.set(field.key, resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits));
           }
         }
         fullUrl = urlObj.toString();
@@ -735,7 +736,8 @@ async function runPingPostCore(
         if (apiConfig.api_key) queryParams.set("api_key", apiConfig.api_key);
         if (Array.isArray(apiConfig.custom_fields)) {
           for (const field of apiConfig.custom_fields) {
-            if (field.key && field.enabled !== false) queryParams.set(field.key, field.value);
+            if (!field.key || field.enabled === false || field.is_header || field.key.startsWith("_")) continue;
+            queryParams.set(field.key, resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits));
           }
         }
         const base = urlObj.origin + urlObj.pathname;
@@ -744,7 +746,11 @@ async function runPingPostCore(
           : `${base}?${queryParams.toString()}`;
       }
 
-      const response = await fetch(fullUrl, { method: "GET", headers: { Accept: "application/json" } });
+      // Header-flagged params (e.g. X-API-Key) go as real HTTP headers, not in the URL.
+      const getHeaderSpecs = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : [])
+        .filter((f: any) => f.enabled !== false && f.is_header);
+      const getExtraHeaders = resolveHeaderFields(getHeaderSpecs, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits);
+      const response = await fetch(fullUrl, { method: "GET", headers: { Accept: "application/json", ...getExtraHeaders } });
       const contentType = response.headers.get("content-type") || "";
       let responseData: Record<string, unknown>;
       if (contentType.includes("application/json")) {
@@ -1131,10 +1137,30 @@ async function runPingPostCore(
 
     pingBody = normalizeLeadspediaFields(pingBody, pingUrl);
     const pingMethod = apiConfig.http_method || "POST";
+    // Same encoding rule as the post step: Leadspedia (or _body_format=form)
+    // gets form fields; everything else keeps JSON. QW/TrackDrive stay JSON.
+    const pingBodyFormatField = (Array.isArray(apiConfig.custom_fields) ? apiConfig.custom_fields : []).find(
+      (f: any) => f.key === "_body_format"
+    );
+    const isLeadspediaPingUrl = pingUrl.toLowerCase().includes("leadspedia");
+    const usePingFormEncoding =
+      !isQuoteWizard && apiProvider !== "trackdrive" &&
+      (pingBodyFormatField?.value === "form" || (isLeadspediaPingUrl && pingBodyFormatField?.value !== "json"));
+    let pingFetchBody: string;
+    let pingContentType: string;
+    if (usePingFormEncoding) {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(pingBody)) params.set(k, typeof v === "object" && v !== null ? JSON.stringify(v) : String(v));
+      pingFetchBody = params.toString();
+      pingContentType = "application/x-www-form-urlencoded";
+    } else {
+      pingFetchBody = JSON.stringify(pingBody);
+      pingContentType = "application/json";
+    }
     const pingResponse = await fetch(pingUrl, {
       method: ["GET", "HEAD"].includes(pingMethod) ? "POST" : pingMethod,
-      headers: { "Content-Type": "application/json", Accept: "application/json", ...pingExtraHeaders },
-      body: JSON.stringify(pingBody),
+      headers: { "Content-Type": pingContentType, Accept: "application/json", ...pingExtraHeaders },
+      body: pingFetchBody,
     });
 
     const contentType = pingResponse.headers.get("content-type") || "";
@@ -1570,11 +1596,14 @@ async function runPingPostCore(
     const ringbaFields: Record<string, string> = {};
     const customKeys = new Set<string>();
     let ringbaBodyFormatField: any = null;
+    const ringbaHeaders: Record<string, string> = {};
     if (Array.isArray(apiConfig.custom_fields)) {
       for (const field of apiConfig.custom_fields) {
         if (field.key === "_body_format") { ringbaBodyFormatField = field; continue; }
         if (field.key && field.enabled !== false) {
           const val = resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields);
+          if (field.is_header) { ringbaHeaders[field.key] = val; continue; }
+          if (field.key.startsWith("_")) continue; // internal meta flag, not a Ringba tag
           ringbaFields[field.key] = val;
           customKeys.add(field.key.toLowerCase());
         }
@@ -1587,7 +1616,7 @@ async function runPingPostCore(
 
     const httpMethod = (apiConfig.http_method || "GET").toUpperCase();
     let ringbaUrl = ringbaBaseUrl;
-    const ringbaFetchOptions: RequestInit = { method: httpMethod, headers: { Accept: "application/json" } };
+    const ringbaFetchOptions: RequestInit = { method: httpMethod, headers: { Accept: "application/json", ...ringbaHeaders } };
 
     // Legacy behavior: every field goes in the query string, no body — this is
     // what D20/D21-Home-style Ringba targets expect. A target that instead reads
@@ -1790,16 +1819,19 @@ async function runPingPostCore(
     rtbUrl.searchParams.set("caller_state", caller_state);
     rtbUrl.searchParams.set("caller_zip", caller_zip);
 
+    const retreaverHeaders: Record<string, string> = {};
     if (Array.isArray(apiConfig.custom_fields)) {
       for (const field of apiConfig.custom_fields) {
         if (field.enabled === false || !field.key) continue;
         if (["key", "api_key", "publisher_id", "pub_id"].includes(field.key)) continue;
-        const val = resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig);
+        const val = resolveFieldValue(field, formattedNumber, caller_state, caller_zip, apiConfig, agent_fields, rawDigits);
+        if (field.is_header) { retreaverHeaders[field.key] = val; continue; }
+        if (field.key.startsWith("_")) continue; // internal meta flag, not a Retreaver param
         if (!rtbUrl.searchParams.has(field.key)) rtbUrl.searchParams.set(field.key, val);
       }
     }
 
-    const response = await fetch(rtbUrl.toString(), { method: "POST", headers: { Accept: "application/json" } });
+    const response = await fetch(rtbUrl.toString(), { method: "POST", headers: { Accept: "application/json", ...retreaverHeaders } });
     const contentType = response.headers.get("content-type") || "";
     let responseData: Record<string, unknown>;
     if (contentType.includes("application/json")) {

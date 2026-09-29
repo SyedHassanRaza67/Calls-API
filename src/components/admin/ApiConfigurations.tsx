@@ -640,6 +640,9 @@ export function ApiConfigurations() {
               value: f.value,
               enabled: f.enabled !== false,
               ask_agent: !!f.ask_agent,
+              // Must survive the round-trip: dropping it here silently turned
+              // header params (e.g. X-API-Key) back into body params on Update.
+              is_header: !!f.is_header,
               stages: {
                 ping: f.stages?.ping !== false,
                 post: f.stages?.post !== false,
@@ -949,6 +952,11 @@ export function ApiConfigurations() {
         category: config.category || null,
         sub_name: config.sub_name || null,
         campaign_section: config.campaign_section || null,
+        ping_id_source_key: config.ping_id_source_key || null,
+        ping_id_post_field: config.ping_id_post_field || null,
+        buyer_code: config.buyer_code || null,
+        ...(typeof config.dedupe_enabled === "boolean" ? { dedupe_enabled: config.dedupe_enabled } : {}),
+        ...(Number(config.dedupe_days) > 0 ? { dedupe_days: Number(config.dedupe_days) } : {}),
         created_by: user?.id,
         is_active: false,
       });
