@@ -1668,7 +1668,13 @@ async function runPingPostCore(
     let customRtbUrl = rawUrl;
     const fetchOptions: RequestInit = { method: httpMethod, headers: { Accept: "application/json", ...customHeaders } };
     const bodyFormatField = Array.isArray(apiConfig.custom_fields) && apiConfig.custom_fields.find((f: any) => f.key === "_body_format");
-    const useFormEncoding = bodyFormatField ? bodyFormatField.value === "form" : false;
+    // Leadspedia only reads form fields — a JSON body comes back as
+    // "lp_campaign_id is required". Same auto-rule as the ping/post branches;
+    // an explicit _body_format still wins.
+    const isLeadspediaRtbUrl = rawUrl.toLowerCase().includes("leadspedia");
+    const useFormEncoding = bodyFormatField
+      ? bodyFormatField.value === "form" || (isLeadspediaRtbUrl && bodyFormatField.value !== "json")
+      : isLeadspediaRtbUrl;
 
     if (httpMethod === "GET") {
       const url = new URL(customRtbUrl);
