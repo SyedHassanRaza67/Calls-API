@@ -18,14 +18,29 @@ import { query } from "../db";
 export const SETTINGS_KEY = "google_sheets";
 
 export interface AdminOverride {
-  /** Send this company's leads to a different spreadsheet. */
+  /** Send this company's leads to a different spreadsheet (service_account mode). */
   spreadsheet_id?: string;
+  /** Send this company's leads to a different Apps Script web app (apps_script mode). */
+  webapp_url?: string;
   /** Custom tab name (defaults to the company name / admin email). */
   tab_name?: string;
 }
 
+/**
+ * apps_script     — the sheet owner pastes our script into Extensions → Apps
+ *                   Script and deploys it as a web app; we POST rows to it.
+ *                   No Google Cloud project or key needed (the default).
+ * service_account — Sheets REST API with a service-account JSON key.
+ */
+export type SheetsMode = "apps_script" | "service_account";
+
 export interface GoogleSheetsSettings {
   enabled: boolean;
+  mode: SheetsMode;
+  /** Apps Script web app "/exec" URL. */
+  webapp_url: string;
+  /** Shared secret embedded in the Apps Script so only we can write. */
+  webapp_secret: string;
   spreadsheet_id: string;
   client_email: string;
   private_key: string;
@@ -37,6 +52,9 @@ export interface GoogleSheetsSettings {
 
 export const DEFAULT_SETTINGS: GoogleSheetsSettings = {
   enabled: false,
+  mode: "apps_script",
+  webapp_url: "",
+  webapp_secret: "",
   spreadsheet_id: "",
   client_email: "",
   private_key: "",
@@ -78,7 +96,10 @@ export async function loadSettings(): Promise<GoogleSheetsSettings> {
     "SELECT setting_value FROM system_settings WHERE setting_key = $1",
     [SETTINGS_KEY]
   );
-  return { ...DEFAULT_SETTINGS, ...(rows[0]?.setting_value ?? {}) };
+  const stored = rows[0]?.setting_value ?? {};
+  // Rows saved before Apps Script mode existed were service-account setups.
+  const mode: SheetsMode = stored.mode ?? (stored.private_key ? "service_account" : "apps_script");
+  return { ...DEFAULT_SETTINGS, ...stored, mode };
 }
 
 export async function saveSettings(s: GoogleSheetsSettings, userId: string): Promise<void> {
@@ -91,6 +112,28 @@ export async function saveSettings(s: GoogleSheetsSettings, userId: string): Pro
                      updated_at = now()`,
     [SETTINGS_KEY, JSON.stringify(s), userId]
   );
+}
+
+/** Is the export fully configured for its mode? */
+export function isConnected(s: GoogleSheetsSettings): boolean {
+  return s.mode === "apps_script"
+    ? !!s.webapp_url && !!s.webapp_secret
+    : !!s.spreadsheet_id && !!s.client_email && !!s.private_key;
+}
+
+/**
+ * Only Apps Script web-app URLs are accepted — this is a server-side fetch, so
+ * the host is pinned to Google rather than being an arbitrary URL.
+ */
+export function normalizeWebAppUrl(input: string): string {
+  const url = (input || "").trim();
+  if (!url) return "";
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec\/?$/.test(url)) {
+    throw new Error(
+      'Web App URL must look like https://script.google.com/macros/s/…/exec (Deploy → New deployment → Web app, then copy the "Web app URL").'
+    );
+  }
+  return url.replace(/\/$/, "");
 }
 
 /** Accepts a bare spreadsheet id or a full docs.google.com URL. */
@@ -230,6 +273,92 @@ async function appendRows(
   );
 }
 
+// ── Apps Script web app client ──────────────────────────────────────────────
+
+/** The script the sheet owner pastes into Extensions → Apps Script. */
+export function buildAppsScript(secret: string): string {
+  return `/**
+ * Calls API -> Google Sheets lead export.
+ * Paste this whole file into Extensions > Apps Script, then
+ * Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone).
+ * Each company's leads are written to its own tab, created automatically.
+ */
+const SECRET = '${secret}';
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    if (body.secret !== SECRET) return reply({ ok: false, error: 'Invalid secret - copy the script again from Calls API' });
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (body.action === 'test') {
+      return reply({ ok: true, title: ss.getName(), tabs: ss.getSheets().map(function (s) { return s.getName(); }) });
+    }
+
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      let sheet = ss.getSheetByName(body.tab);
+      if (!sheet) {
+        sheet = ss.insertSheet(body.tab);
+        sheet.getRange(1, 1, 1, body.header.length).setValues([body.header]).setFontWeight('bold');
+        sheet.setFrozenRows(1);
+      }
+      const rows = body.rows || [];
+      if (rows.length) {
+        // Plain-text format: keeps phone numbers as typed and never runs "=" formulas.
+        sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length)
+          .setNumberFormat('@')
+          .setValues(rows);
+      }
+      return reply({ ok: true, appended: rows.length });
+    } finally {
+      lock.releaseLock();
+    }
+  } catch (err) {
+    return reply({ ok: false, error: String(err) });
+  }
+}
+
+function doGet() {
+  return reply({ ok: true, message: 'Calls API sheet export is installed. Paste this Web App URL into Calls API.' });
+}
+
+function reply(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+`;
+}
+
+async function webAppPost<T>(url: string, payload: Record<string, unknown>): Promise<T> {
+  // Apps Script answers a POST with a 302 to googleusercontent.com; fetch
+  // follows it (as GET), which is how the web app hands back its output.
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    redirect: "follow",
+  });
+  const text = await resp.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    if (/<html/i.test(text)) {
+      throw new Error(
+        'Google returned a sign-in page instead of the script — redeploy the Web app with "Who has access: Anyone".'
+      );
+    }
+    throw new Error(`Web app returned an unexpected response (HTTP ${resp.status})`);
+  }
+  if (!data?.ok) throw new Error(data?.error || `Web app error (HTTP ${resp.status})`);
+  return data as T;
+}
+
+export async function testWebApp(s: GoogleSheetsSettings, url: string): Promise<{ title: string; tabs: string[] }> {
+  return webAppPost(url, { secret: s.webapp_secret, action: "test" });
+}
+
 // ── sync worker ─────────────────────────────────────────────────────────────
 
 interface LeadRow {
@@ -257,7 +386,7 @@ export interface SyncStatus {
   last_success_at: string | null;
   last_synced_count: number;
   total_synced_since_start: number;
-  errors: { tab: string; spreadsheet_id: string; error: string }[];
+  errors: { tab: string; dest: string; error: string }[];
 }
 
 const status: SyncStatus = {
@@ -313,10 +442,14 @@ export function resolveTarget(
   ownerId: string | null,
   company: string | null,
   ownerEmail: string | null
-): { spreadsheetId: string; tab: string } {
-  const o = (ownerId && s.admin_overrides[ownerId]) || {};
+): { dest: string; tab: string } {
+  const o: AdminOverride = (ownerId && s.admin_overrides[ownerId]) || {};
   return {
-    spreadsheetId: parseSpreadsheetId(o.spreadsheet_id || "") || s.spreadsheet_id,
+    // dest = web app URL (apps_script) or spreadsheet id (service_account).
+    dest:
+      s.mode === "apps_script"
+        ? o.webapp_url || s.webapp_url
+        : parseSpreadsheetId(o.spreadsheet_id || "") || s.spreadsheet_id,
     tab: sanitizeTabName(o.tab_name || company || ownerEmail || "Unassigned"),
   };
 }
@@ -357,7 +490,7 @@ export async function runSync(): Promise<number> {
   status.last_run_at = new Date().toISOString();
   try {
     const s = await loadSettings();
-    if (!s.enabled || !s.spreadsheet_id || !s.client_email || !s.private_key) {
+    if (!s.enabled || !isConnected(s)) {
       status.errors = [];
       return 0;
     }
@@ -375,11 +508,11 @@ export async function runSync(): Promise<number> {
       [s.sync_from]
     );
 
-    // Group by destination spreadsheet + tab.
-    const groups = new Map<string, { spreadsheetId: string; tab: string; leads: LeadRow[] }>();
+    // Group by destination (spreadsheet / web app) + tab.
+    const groups = new Map<string, { dest: string; tab: string; leads: LeadRow[] }>();
     for (const l of rows) {
       const t = resolveTarget(s, l.owner_id, l.owner_company, l.owner_email);
-      const k = `${t.spreadsheetId}\u0000${t.tab}`;
+      const k = `${t.dest}\u0000${t.tab}`;
       if (!groups.has(k)) groups.set(k, { ...t, leads: [] });
       groups.get(k)!.leads.push(l);
     }
@@ -390,23 +523,29 @@ export async function runSync(): Promise<number> {
 
     for (const g of groups.values()) {
       try {
-        let tabs = tabsBySheet.get(g.spreadsheetId);
-        if (!tabs) {
-          tabs = new Set((await getSpreadsheetInfo(s, g.spreadsheetId)).tabs);
-          tabsBySheet.set(g.spreadsheetId, tabs);
+        const values = g.leads.map((l) => toSheetRow(l, s.timezone));
+        if (s.mode === "apps_script") {
+          // The script creates the tab (with header) itself when missing.
+          await webAppPost(g.dest, { secret: s.webapp_secret, action: "append", tab: g.tab, header: HEADER, rows: values });
+        } else {
+          let tabs = tabsBySheet.get(g.dest);
+          if (!tabs) {
+            tabs = new Set((await getSpreadsheetInfo(s, g.dest)).tabs);
+            tabsBySheet.set(g.dest, tabs);
+          }
+          if (!tabs.has(g.tab)) {
+            await createTab(s, g.dest, g.tab);
+            tabs.add(g.tab);
+          }
+          await appendRows(s, g.dest, g.tab, values);
         }
-        if (!tabs.has(g.tab)) {
-          await createTab(s, g.spreadsheetId, g.tab);
-          tabs.add(g.tab);
-        }
-        await appendRows(s, g.spreadsheetId, g.tab, g.leads.map((l) => toSheetRow(l, s.timezone)));
         await query("UPDATE leads SET sheet_synced_at = now() WHERE id = ANY($1::uuid[])", [
           g.leads.map((l) => l.id),
         ]);
         written += g.leads.length;
       } catch (e) {
         // Leave these leads unsynced so the next pass retries them.
-        errors.push({ tab: g.tab, spreadsheet_id: g.spreadsheetId, error: (e as Error).message });
+        errors.push({ tab: g.tab, dest: g.dest, error: (e as Error).message });
       }
     }
 
@@ -420,7 +559,7 @@ export async function runSync(): Promise<number> {
     if (!errors.length) status.last_success_at = new Date().toISOString();
     return written;
   } catch (e) {
-    status.errors = [{ tab: "*", spreadsheet_id: "", error: (e as Error).message }];
+    status.errors = [{ tab: "*", dest: "", error: (e as Error).message }];
     console.error("google sheets sync failed:", e);
     return 0;
   } finally {

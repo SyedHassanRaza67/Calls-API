@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import { query } from "../db";
 import { asyncHandler } from "../middleware/error";
@@ -10,6 +11,10 @@ import {
   loadSettings,
   saveSettings,
   parseSpreadsheetId,
+  normalizeWebAppUrl,
+  isConnected,
+  buildAppsScript,
+  testWebApp,
   getSpreadsheetInfo,
   getSyncStatus,
   countPending,
@@ -19,7 +24,7 @@ import {
 
 const router = Router();
 
-// Every endpoint here is super_admin only — the settings hold a private key.
+// Every endpoint here is super_admin only — the settings hold write secrets.
 router.use(
   requireAuth,
   asyncHandler(async (req, _res, next) => {
@@ -28,10 +33,27 @@ router.use(
   })
 );
 
-/** Never send the private key back to the browser. */
+/** Never send the service-account private key back to the browser. */
 function publicView(s: GoogleSheetsSettings) {
   const { private_key, ...rest } = s;
   return { ...rest, has_private_key: !!private_key };
+}
+
+/** The Apps Script secret is created once, the first time it is needed. */
+async function ensureSecret(s: GoogleSheetsSettings, userId: string): Promise<GoogleSheetsSettings> {
+  if (s.webapp_secret) return s;
+  s.webapp_secret = randomBytes(24).toString("hex");
+  await saveSettings(s, userId);
+  return s;
+}
+
+/** Throws a 400 instead of a 500 for user-entered Web App URLs. */
+function webAppUrlOr400(input: string): string {
+  try {
+    return normalizeWebAppUrl(input);
+  } catch (e) {
+    throw new HttpError(400, (e as Error).message);
+  }
 }
 
 async function listCompanies(s: GoogleSheetsSettings) {
@@ -50,22 +72,23 @@ async function listCompanies(s: GoogleSheetsSettings) {
     return {
       ...r,
       tab_name: target.tab,
-      spreadsheet_id: target.spreadsheetId,
+      dest: target.dest,
       override: s.admin_overrides[r.user_id] ?? null,
     };
   });
 }
 
-// ── GET /api/google-sheets — settings, status, per-company targets ─────────
+// ── GET /api/google-sheets — settings, status, script, per-company targets ──
 router.get(
   "/",
-  asyncHandler(async (_req, res) => {
-    const s = await loadSettings();
+  asyncHandler(async (req, res) => {
+    const s = await ensureSecret(await loadSettings(), req.user!.id);
     res.json({
       settings: publicView(s),
       status: getSyncStatus(),
       pending: s.enabled ? await countPending(s) : 0,
       companies: await listCompanies(s),
+      apps_script: buildAppsScript(s.webapp_secret),
     });
   })
 );
@@ -73,11 +96,14 @@ router.get(
 // ── PUT /api/google-sheets — save settings ─────────────────────────────────
 const overrideSchema = z.object({
   spreadsheet_id: z.string().max(500).optional(),
+  webapp_url: z.string().max(500).optional(),
   tab_name: z.string().max(100).optional(),
 });
 
 const putSchema = z.object({
   enabled: z.boolean().optional(),
+  mode: z.enum(["apps_script", "service_account"]).optional(),
+  webapp_url: z.string().max(500).optional(),
   spreadsheet_id: z.string().max(500).optional(),
   // The raw JSON key file contents. Omit to keep the stored key.
   service_account_json: z.string().max(20_000).optional(),
@@ -92,6 +118,8 @@ router.put(
     const s = await loadSettings();
     const wasEnabled = s.enabled;
 
+    if (input.mode !== undefined) s.mode = input.mode;
+    if (input.webapp_url !== undefined) s.webapp_url = webAppUrlOr400(input.webapp_url);
     if (input.service_account_json !== undefined && input.service_account_json.trim()) {
       let key: { client_email?: string; private_key?: string; type?: string };
       try {
@@ -119,14 +147,20 @@ router.put(
       const cleaned: GoogleSheetsSettings["admin_overrides"] = {};
       for (const [adminId, o] of Object.entries(input.admin_overrides)) {
         const spreadsheet_id = parseSpreadsheetId(o.spreadsheet_id || "");
+        const webapp_url = webAppUrlOr400(o.webapp_url || "");
         const tab_name = (o.tab_name || "").trim();
-        if (spreadsheet_id || tab_name) cleaned[adminId] = { spreadsheet_id, tab_name };
+        if (spreadsheet_id || webapp_url || tab_name) cleaned[adminId] = { spreadsheet_id, webapp_url, tab_name };
       }
       s.admin_overrides = cleaned;
     }
     if (input.enabled !== undefined) {
-      if (input.enabled && (!s.spreadsheet_id || !s.client_email || !s.private_key)) {
-        throw new HttpError(400, "Add a spreadsheet and a service account key before enabling.");
+      if (input.enabled && !isConnected(s)) {
+        throw new HttpError(
+          400,
+          s.mode === "apps_script"
+            ? "Paste the Web App URL before enabling."
+            : "Add a spreadsheet and a service account key before enabling."
+        );
       }
       s.enabled = input.enabled;
       // Turning the export on starts from "now" — history is opt-in via backfill.
@@ -139,27 +173,36 @@ router.put(
   })
 );
 
-// ── POST /api/google-sheets/test — verify access to every target sheet ─────
+// ── POST /api/google-sheets/test — verify access to every target ───────────
 router.post(
   "/test",
   asyncHandler(async (_req, res) => {
     const s = await loadSettings();
-    if (!s.spreadsheet_id || !s.client_email || !s.private_key) {
-      throw new HttpError(400, "Add a spreadsheet and a service account key first.");
+    if (!isConnected(s)) {
+      throw new HttpError(
+        400,
+        s.mode === "apps_script" ? "Paste the Web App URL first." : "Add a spreadsheet and a service account key first."
+      );
     }
-    const ids = new Set<string>([s.spreadsheet_id]);
-    for (const o of Object.values(s.admin_overrides)) if (o.spreadsheet_id) ids.add(o.spreadsheet_id);
+    const dests = new Set<string>();
+    if (s.mode === "apps_script") {
+      dests.add(s.webapp_url);
+      for (const o of Object.values(s.admin_overrides)) if (o.webapp_url) dests.add(o.webapp_url);
+    } else {
+      dests.add(s.spreadsheet_id);
+      for (const o of Object.values(s.admin_overrides)) if (o.spreadsheet_id) dests.add(o.spreadsheet_id);
+    }
 
     const results = [];
-    for (const id of ids) {
+    for (const dest of dests) {
       try {
-        const info = await getSpreadsheetInfo(s, id);
-        results.push({ spreadsheet_id: id, ok: true, title: info.title, tabs: info.tabs });
+        const info = s.mode === "apps_script" ? await testWebApp(s, dest) : await getSpreadsheetInfo(s, dest);
+        results.push({ dest, ok: true, title: info.title, tabs: info.tabs });
       } catch (e) {
-        results.push({ spreadsheet_id: id, ok: false, error: (e as Error).message });
+        results.push({ dest, ok: false, error: (e as Error).message });
       }
     }
-    res.json({ ok: results.every((r) => r.ok), client_email: s.client_email, results });
+    res.json({ ok: results.every((r) => r.ok), results });
   })
 );
 
