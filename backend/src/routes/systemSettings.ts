@@ -8,6 +8,10 @@ import { HttpError } from "../types";
 
 const router = Router();
 
+// Keys owned by a dedicated, super_admin-only route because they hold secrets
+// (google_sheets stores a service-account private key; see routes/googleSheets).
+const PROTECTED_KEYS = new Set(["google_sheets"]);
+
 // GET /api/system-settings/:key
 // `global_pause` is PUBLIC (no auth). Any other key requires auth.
 router.get(
@@ -15,6 +19,7 @@ router.get(
   optionalAuth,
   asyncHandler(async (req, res) => {
     const key = req.params.key;
+    if (PROTECTED_KEYS.has(key)) throw new HttpError(404, "Setting not found");
     if (key !== "global_pause" && !req.user) {
       throw new HttpError(401, "Unauthorized");
     }
@@ -42,6 +47,7 @@ router.put(
   asyncHandler(async (req, res) => {
     if (!(await isSuperAdmin(req.user!.id))) throw new HttpError(403, "Forbidden");
     const key = req.params.key;
+    if (PROTECTED_KEYS.has(key)) throw new HttpError(400, "Use /api/google-sheets to change this setting");
     const { setting_value } = putSchema.parse(req.body);
 
     const { rows } = await query(

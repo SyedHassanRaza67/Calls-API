@@ -2,8 +2,12 @@ import { Settings as SettingsIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AccountSettings } from "@/components/agent/AccountSettings";
 import { SystemSettings } from "@/components/admin/SystemSettings";
+import { GoogleSheetsSettings } from "@/components/admin/GoogleSheetsSettings";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function SettingsTabs() {
+  const { isSuperAdmin } = useAuth();
+
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -21,6 +25,7 @@ export function SettingsTabs() {
         <TabsList>
           <TabsTrigger value="account">Account</TabsTrigger>
           <TabsTrigger value="billing">Billing &amp; Pricing</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="google-sheets">Google Sheets</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="account" className="space-y-6">
@@ -30,6 +35,12 @@ export function SettingsTabs() {
         <TabsContent value="billing" className="space-y-6">
           <SystemSettings />
         </TabsContent>
+
+        {isSuperAdmin && (
+          <TabsContent value="google-sheets" className="space-y-6">
+            <GoogleSheetsSettings />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

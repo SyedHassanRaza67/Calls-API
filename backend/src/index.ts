@@ -14,6 +14,8 @@ import transactionsRouter from "./routes/transactions";
 import apiKeysRouter from "./routes/apiKeys";
 import systemSettingsRouter from "./routes/systemSettings";
 import integrationsRouter from "./routes/integrations";
+import googleSheetsRouter from "./routes/googleSheets";
+import { startSheetsSyncWorker, stopSheetsSyncWorker } from "./lib/googleSheets";
 
 const app = express();
 
@@ -50,6 +52,7 @@ app.use("/api/leads", leadsRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/api-keys", apiKeysRouter);
 app.use("/api/system-settings", systemSettingsRouter);
+app.use("/api/google-sheets", googleSheetsRouter);
 // Integration routes are mounted at /api root (proxy-request, parse-trackdrive-url).
 app.use("/api", integrationsRouter);
 
@@ -62,11 +65,13 @@ app.use(errorHandler);
 
 const server = app.listen(config.port, () => {
   console.log(`calls-api backend listening on :${config.port} (${config.nodeEnv})`);
+  startSheetsSyncWorker();
 });
 
 // Graceful shutdown.
 function shutdown(signal: string) {
   console.log(`${signal} received, shutting down...`);
+  stopSheetsSyncWorker();
   server.close(() => {
     pool.end().finally(() => process.exit(0));
   });
