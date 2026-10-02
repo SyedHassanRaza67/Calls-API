@@ -363,7 +363,7 @@ router.post(
         const did =
           customData.phoneNumber || customData.number || customData.inbound_number ||
           customData.destination || customData.tracking_number || customData.did ||
-          customData.phone || customData.transferNumber;
+          customData.dynamicPhoneNumber || customData.phone || customData.transferNumber;
 
         if (did) {
           return res.status(200).json({ ok: true, did: String(did), api_configuration_id, raw: customData, http_status: customUpstreamStatus });
@@ -400,7 +400,8 @@ router.post(
         const ringbaUpStatus = ringbaResponse.status;
         const trackingNumber =
           ringbaData.phoneNumber || ringbaData.number || ringbaData.inbound_number ||
-          ringbaData.destination || ringbaData.tracking_number || ringbaData.did;
+          ringbaData.destination || ringbaData.tracking_number || ringbaData.did ||
+          ringbaData.dynamicPhoneNumber;
         if (trackingNumber) {
           return res.status(200).json({ ok: true, did: trackingNumber, api_configuration_id, raw: ringbaData, http_status: ringbaUpStatus });
         } else if (ringbaData.error) {

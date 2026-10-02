@@ -137,10 +137,13 @@ function ciGet(obj: unknown, ...keys: string[]): unknown {
  *     `displayPhoneNumber` (the business's own public line). Dialing the display
  *     number connects the caller but is typically NOT tracked by the buyer, so
  *     it is deliberately the LAST resort.
+ *   - `dynamicPhoneNumber` is the per-bid number some RTB buyers return next to
+ *     `dynamicBid`. Without it here the success fallback handed agents the
+ *     response `id` as the number to dial.
  */
 const TRACKING_NUMBER_KEYS = [
   "forwarding_number", "inbound_number", "tracking_number", "routing_number",
-  "destination_number", "dial_number", "did",
+  "destination_number", "dial_number", "did", "dynamic_phone_number",
   "completion_phone_number",
   "number", "phone_number", "destination",
   "display_phone_number",
