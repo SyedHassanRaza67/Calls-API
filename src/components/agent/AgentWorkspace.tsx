@@ -94,6 +94,28 @@ function isResponseHiddenFromAgents(config: any): boolean {
 
 type StatusFilter = "all" | "success" | "failed" | "idle";
 
+// Agents never see a caller's last four digits (e.g. 713733XXXX). Search and
+// autocomplete only match on what's visible, or on the full number when the
+// agent already typed all of it, so the hidden digits can't be guessed.
+function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 5) return phone;
+  return `${digits.slice(0, -4)}XXXX`;
+}
+
+function matchesVisiblePhone(phone: string, queryDigits: string): boolean {
+  const digits = phone.replace(/\D/g, "");
+  if (queryDigits.length >= 10 && digits.slice(-10) === queryDigits.slice(-10)) return true;
+  return digits.slice(0, -4).includes(queryDigits);
+}
+
+/** Masks the caller number wherever it is echoed back inside a buyer's raw response. */
+function maskPhoneInText(text: string, phone?: string): string {
+  const digits = (phone ?? "").replace(/\D/g, "").slice(-10);
+  if (digits.length < 10) return text;
+  return text.split(digits).join(maskPhone(digits));
+}
+
 function getSubmissionSummary(campaignResults: Record<string, CampaignResult>) {
   const values = Object.values(campaignResults);
   const success = values.filter((r) => r.status === "success").length;
@@ -125,13 +147,16 @@ function PhoneAutocomplete({
   const suggestions = useMemo(() => {
     const digits = value.replace(/\D/g, "");
     const seen = new Set<string>();
+    // Only offer a past lead once the full number is typed: picking a partial
+    // match would fill the input with the hidden digits. Picking still fills
+    // in that lead's state and zip.
+    if (digits.length < 10) return [];
     const filtered = submissions.filter((s) => {
       const phoneDigits = s.callerNumber.replace(/\D/g, "");
       const key = `${phoneDigits}-${s.callerState}-${s.callerZip}`;
       if (seen.has(key)) return false;
       seen.add(key);
-      if (!digits) return true;
-      return phoneDigits.includes(digits);
+      return phoneDigits.slice(-10) === digits.slice(-10);
     });
     return filtered.slice(0, 8);
   }, [value, submissions]);
@@ -155,7 +180,7 @@ function PhoneAutocomplete({
               className="w-full px-3 py-2 text-left text-sm hover:bg-accent transition-colors flex items-center justify-between"
               onMouseDown={(e) => { e.preventDefault(); onSelect(sub); setOpen(false); }}
             >
-              <span className="font-mono text-xs">{sub.callerNumber}</span>
+              <span className="font-mono text-xs">{maskPhone(sub.callerNumber)}</span>
               <span className="text-muted-foreground text-xs">{sub.callerState} · {sub.callerZip}</span>
             </button>
           ))}
@@ -312,7 +337,7 @@ const CampaignOverlay = memo(function CampaignOverlay({
           <div className="px-3 py-1.5 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <Phone className="h-3.5 w-3.5 text-primary-foreground flex-shrink-0" />
-              <span className="text-xs font-semibold text-primary-foreground whitespace-nowrap font-mono">{sub.callerNumber}</span>
+              <span className="text-xs font-semibold text-primary-foreground whitespace-nowrap font-mono">{maskPhone(sub.callerNumber)}</span>
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 border-primary-foreground/40 text-primary-foreground">{sub.callerState}</Badge>
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 border-primary-foreground/40 text-primary-foreground">{sub.callerZip}</Badge>
             </div>
@@ -397,7 +422,7 @@ const SubmissionRow = memo(function SubmissionRow({
         <td className="px-2 py-1.5 text-muted-foreground text-xs whitespace-nowrap">
           {format(sub.timestamp, "MM/dd HH:mm")}
         </td>
-        <td className="px-2 py-1.5 font-mono text-xs">{sub.callerNumber}</td>
+        <td className="px-2 py-1.5 font-mono text-xs">{maskPhone(sub.callerNumber)}</td>
         <td className="px-2 py-1.5 text-xs">{sub.callerState}</td>
         <td className="px-2 py-1.5 text-xs">{sub.callerZip}</td>
         <td className="px-2 py-1.5">
@@ -478,9 +503,7 @@ export function AgentWorkspace() {
     if (searchQuery) {
       const digits = searchQuery.replace(/\D/g, "");
       if (digits) {
-        result = result.filter((sub) =>
-          sub.callerNumber.replace(/\D/g, "").includes(digits)
-        );
+        result = result.filter((sub) => matchesVisiblePhone(sub.callerNumber, digits));
       }
     }
     if (statusFilter !== "all") {
@@ -1047,7 +1070,7 @@ export function AgentWorkspace() {
               <CollapsibleContent>
                 <div className="mt-2 p-3 rounded-lg bg-muted/50 border border-border">
                   <pre className="text-xs text-muted-foreground overflow-x-auto whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-                    {JSON.stringify(responseDialog.result.raw, null, 2)}
+                    {maskPhoneInText(JSON.stringify(responseDialog.result.raw, null, 2), responseDialog.callerNumber)}
                   </pre>
                 </div>
               </CollapsibleContent>
