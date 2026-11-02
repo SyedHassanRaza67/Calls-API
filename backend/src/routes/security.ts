@@ -42,10 +42,10 @@ router.get(
               (s.legacy_token_hash IS NULL
                 AND EXISTS (SELECT 1 FROM login_events h
                              WHERE h.user_id = s.user_id AND h.success
-                               AND h.created_at < s.created_at - interval '1 minute')
+                               AND h.session_id IS DISTINCT FROM s.id AND h.created_at < s.created_at)
                 AND NOT EXISTS (SELECT 1 FROM login_events h
                                  WHERE h.user_id = s.user_id AND h.success AND h.ip = s.ip
-                                   AND h.created_at < s.created_at - interval '1 minute'
+                                   AND h.session_id IS DISTINCT FROM s.id AND h.created_at < s.created_at
                                    AND h.created_at > s.created_at - interval '30 days')
               ) AS new_ip
          FROM user_sessions s
