@@ -4,6 +4,7 @@ export interface AuthUser {
   id: string;
   email: string;
   roles: AppRole[];
+  sid?: string; // current login session (user_sessions.id)
 }
 
 declare global {

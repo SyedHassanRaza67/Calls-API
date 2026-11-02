@@ -2,7 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { query, withTransaction } from "../db";
 import { hashPassword, verifyPassword } from "../lib/password";
-import { signToken } from "../lib/jwt";
+import { signToken, verifyToken } from "../lib/jwt";
+import { createSession, recordLoginEvent, revokeSession } from "../lib/sessions";
 import { asyncHandler } from "../middleware/error";
 import { requireAuth } from "../middleware/auth";
 import {
@@ -103,6 +104,12 @@ router.post(
     );
     const user = rows[0];
     if (!user || !(await verifyPassword(password, user.password_hash))) {
+      await recordLoginEvent(req, {
+        userId: user?.id ?? null,
+        email: normalizedEmail,
+        success: false,
+        reason: user ? "wrong_password" : "unknown_email",
+      });
       throw new HttpError(401, "Invalid email or password");
     }
 
@@ -112,6 +119,14 @@ router.post(
       [user.id]
     );
     const approvalStatus = approvalRes.rows[0]?.approval_status ?? null;
+    if (approvalStatus === "pending" || approvalStatus === "rejected") {
+      await recordLoginEvent(req, {
+        userId: user.id,
+        email: normalizedEmail,
+        success: false,
+        reason: `account_${approvalStatus}`,
+      });
+    }
     if (approvalStatus === "pending") {
       throw new HttpError(403, "Your account is pending Super Admin approval.");
     }
@@ -122,7 +137,11 @@ router.post(
       );
     }
 
-    const token = signToken({ sub: user.id, email: user.email });
+    // One session per sign-in; no cap on how many a user can hold at once.
+    const sid = await createSession(user.id, req);
+    await recordLoginEvent(req, { userId: user.id, email: normalizedEmail, success: true, sessionId: sid });
+
+    const token = signToken({ sub: user.id, email: user.email, sid });
     res.json({ token, user: { id: user.id, email: user.email } });
   })
 );
@@ -156,10 +175,20 @@ router.post(
   })
 );
 
-// POST /api/auth/signout — stateless; client drops the token.
+// POST /api/auth/signout — ends this browser's session; client drops the token.
+// Never fails: an expired/invalid token just means there is nothing to end.
 router.post(
   "/signout",
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const header = req.headers.authorization;
+    if (header?.startsWith("Bearer ")) {
+      try {
+        const payload = verifyToken(header.slice("Bearer ".length).trim());
+        if (payload.sid) await revokeSession(payload.sid, payload.sub, "signout");
+      } catch {
+        /* nothing to revoke */
+      }
+    }
     res.json({ ok: true });
   })
 );

@@ -15,9 +15,16 @@ import apiKeysRouter from "./routes/apiKeys";
 import systemSettingsRouter from "./routes/systemSettings";
 import integrationsRouter from "./routes/integrations";
 import googleSheetsRouter from "./routes/googleSheets";
+import securityRouter from "./routes/security";
 import { startSheetsSyncWorker, stopSheetsSyncWorker } from "./lib/googleSheets";
+import { startSecurityLogPruner, stopSecurityLogPruner } from "./lib/sessions";
 
 const app = express();
+
+// Behind nginx (reached via loopback, or the Docker bridge when containerised):
+// trust only private-network hops so req.ip is the real client from
+// X-Forwarded-For and can't be spoofed by the client itself.
+app.set("trust proxy", "loopback, linklocal, uniquelocal");
 
 // CORS: allow configured origins (default '*' for dev). Comma-separated list.
 const corsOrigins =
@@ -53,6 +60,7 @@ app.use("/api/transactions", transactionsRouter);
 app.use("/api/api-keys", apiKeysRouter);
 app.use("/api/system-settings", systemSettingsRouter);
 app.use("/api/google-sheets", googleSheetsRouter);
+app.use("/api/security", securityRouter);
 // Integration routes are mounted at /api root (proxy-request, parse-trackdrive-url).
 app.use("/api", integrationsRouter);
 
@@ -66,12 +74,14 @@ app.use(errorHandler);
 const server = app.listen(config.port, () => {
   console.log(`calls-api backend listening on :${config.port} (${config.nodeEnv})`);
   startSheetsSyncWorker();
+  startSecurityLogPruner();
 });
 
 // Graceful shutdown.
 function shutdown(signal: string) {
   console.log(`${signal} received, shutting down...`);
   stopSheetsSyncWorker();
+  stopSecurityLogPruner();
   server.close(() => {
     pool.end().finally(() => process.exit(0));
   });

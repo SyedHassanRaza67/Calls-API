@@ -10,10 +10,11 @@ import { SettingsTabs } from "@/components/admin/SettingsTabs";
 import { LeadsManagement } from "@/components/admin/LeadsManagement";
 import { ApiConfigurations } from "@/components/admin/ApiConfigurations";
 import { Instructions } from "@/components/admin/Instructions";
+import { SecurityLogs } from "@/components/admin/SecurityLogs";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PausedAccountScreen } from "@/components/PausedAccountScreen";
-import { LayoutDashboard, Users, BarChart3, Settings, Loader2, ShieldAlert, Phone, Key, BookOpen } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings, Loader2, ShieldAlert, Phone, Key, BookOpen, ShieldCheck } from "lucide-react";
 
 export default function AdminDashboardPage() {
   const { user, isAdmin, isSuperAdmin, isLoading, isPaused, pausedReason } = useAuth();
@@ -84,6 +85,7 @@ export default function AdminDashboardPage() {
     { path: "/admin/users", label: isSuperAdmin ? "Users" : "Agents", icon: Users },
     { path: "/admin/apis", label: "APIs", icon: Key },
     { path: "/admin/analytics", label: "Analytics", icon: BarChart3 },
+    { path: "/admin/security", label: "Security", icon: ShieldCheck },
     { path: "/admin/settings", label: "Settings", icon: Settings },
     { path: "/admin/instructions", label: "Help", icon: BookOpen },
   ];
@@ -166,6 +168,7 @@ export default function AdminDashboardPage() {
             <Route path="users" element={<UserManagement />} />
             <Route path="apis" element={<ApiConfigurations />} />
             <Route path="analytics" element={<Analytics />} />
+            <Route path="security" element={<SecurityLogs />} />
             <Route path="settings" element={<SettingsTabs />} />
             <Route path="instructions" element={<Instructions />} />
           </Routes>

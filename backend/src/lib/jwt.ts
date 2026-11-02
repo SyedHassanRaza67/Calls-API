@@ -4,6 +4,7 @@ import { config } from "../config";
 export interface JwtPayload {
   sub: string; // user id
   email: string;
+  sid?: string; // user_sessions.id — absent only on tokens issued before sessions existed
   iat?: number; // issued-at (seconds), set by jsonwebtoken
 }
 

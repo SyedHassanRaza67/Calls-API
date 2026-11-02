@@ -3,6 +3,7 @@ import { signToken, verifyToken } from "../lib/jwt";
 import { getRoles } from "../lib/authz";
 import { query } from "../db";
 import { HttpError } from "../types";
+import { adoptLegacySession, validateAndTouchSession } from "../lib/sessions";
 
 /**
  * Parses `Authorization: Bearer <JWT>`, verifies it, loads roles, and attaches
@@ -31,14 +32,32 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       throw new HttpError(401, "Unauthorized");
     }
 
+    // Session check: a revoked session (admin "Log out", sign-out) kills the
+    // token. Tokens minted before sessions existed are adopted into one instead
+    // of being logged out, and get a replacement token carrying the new sid.
+    let sid = payload.sid;
+    let reissue = false;
+    if (sid) {
+      if (!(await validateAndTouchSession(sid, payload.sub, req))) {
+        throw new HttpError(401, "Your session was ended. Please sign in again.");
+      }
+    } else {
+      const adopted = await adoptLegacySession(payload.sub, token, req);
+      if (!adopted) {
+        throw new HttpError(401, "Your session was ended. Please sign in again.");
+      }
+      sid = adopted;
+      reissue = true;
+    }
+
     const roles = await getRoles(payload.sub);
-    req.user = { id: rows[0].id, email: rows[0].email, roles };
+    req.user = { id: rows[0].id, email: rows[0].email, roles, sid };
 
     // Sliding session: once a token is over a day old, hand back a fresh one
     // so a user who keeps working is never logged out mid-edit by the fixed
     // 7-day expiry. The client swaps it in from this header.
-    if (payload.iat && Date.now() / 1000 - payload.iat > REFRESH_AFTER_SECONDS) {
-      res.setHeader("X-Refreshed-Token", signToken({ sub: rows[0].id, email: rows[0].email }));
+    if (reissue || (payload.iat && Date.now() / 1000 - payload.iat > REFRESH_AFTER_SECONDS)) {
+      res.setHeader("X-Refreshed-Token", signToken({ sub: rows[0].id, email: rows[0].email, sid }));
     }
     next();
   } catch (err) {
