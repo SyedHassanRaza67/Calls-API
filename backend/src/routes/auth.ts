@@ -3,7 +3,7 @@ import { z } from "zod";
 import { query, withTransaction } from "../db";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { signToken, verifyToken } from "../lib/jwt";
-import { createSession, recordLoginEvent, revokeSession } from "../lib/sessions";
+import { createSession, recordLoginEvent, revokeAllSessions, revokeSession } from "../lib/sessions";
 import { asyncHandler } from "../middleware/error";
 import { requireAuth } from "../middleware/auth";
 import {
@@ -169,9 +169,14 @@ router.post(
     }
 
     const passwordHash = await hashPassword(new_password);
-    await query("UPDATE app_users SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
+    await query("UPDATE app_users SET password_hash = $1, password_changed_at = now() WHERE id = $2", [
+      passwordHash,
+      userId,
+    ]);
+    // Log out every other device using the old password; keep this one.
+    const loggedOut = await revokeAllSessions(userId, userId, "password_change", req.user!.sid);
 
-    res.json({ success: true });
+    res.json({ success: true, logged_out_devices: loggedOut });
   })
 );
 

@@ -24,8 +24,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     }
 
     // Ensure the user still exists; pull canonical email.
-    const { rows } = await query<{ id: string; email: string }>(
-      "SELECT id, email FROM app_users WHERE id = $1",
+    const { rows } = await query<{ id: string; email: string; password_changed_at: Date | null }>(
+      "SELECT id, email, password_changed_at FROM app_users WHERE id = $1",
       [payload.sub]
     );
     if (rows.length === 0) {
@@ -42,6 +42,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         throw new HttpError(401, "Your session was ended. Please sign in again.");
       }
     } else {
+      // A pre-sessions token has no session to revoke, so a password change
+      // after it was issued has to be enforced here.
+      const changedAt = rows[0].password_changed_at;
+      if (changedAt && (payload.iat ?? 0) * 1000 < changedAt.getTime()) {
+        throw new HttpError(401, "Your password was changed. Please sign in again.");
+      }
       const adopted = await adoptLegacySession(payload.sub, token, req);
       if (!adopted) {
         throw new HttpError(401, "Your session was ended. Please sign in again.");

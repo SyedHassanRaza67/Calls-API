@@ -6,6 +6,7 @@ import { asyncHandler } from "../middleware/error";
 import { requireAuth } from "../middleware/auth";
 import { requireAdmin, requireSuperAdmin } from "../middleware/requireRole";
 import { hashPassword } from "../lib/password";
+import { revokeAllSessions } from "../lib/sessions";
 import { isSuperAdmin, isAdmin } from "../lib/authz";
 import { getEmailDomain, isFreeEmailProvider } from "../lib/emailProviders";
 import { AppRole, HttpError } from "../types";
@@ -280,9 +281,14 @@ router.post(
     }
 
     const hash = await hashPassword(password);
-    await query("UPDATE app_users SET password_hash = $1 WHERE id = $2", [hash, userId]);
+    await query("UPDATE app_users SET password_hash = $1, password_changed_at = now() WHERE id = $2", [
+      hash,
+      userId,
+    ]);
+    // Every device still signed in with the old password is logged out.
+    const loggedOut = await revokeAllSessions(userId, me, "password_reset");
 
-    res.status(200).json({ success: true, password });
+    res.status(200).json({ success: true, password, logged_out_devices: loggedOut });
   })
 );
 
