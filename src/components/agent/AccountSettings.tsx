@@ -456,55 +456,64 @@ export function AccountSettings() {
         </Card>
       )}
 
-      {/* Change Password Card */}
-      <Card className="bg-card/50 border-border">
-        <CardHeader>
-          <CardTitle>Change Password</CardTitle>
-          <CardDescription>Update the password you use to sign in.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="currentPassword">Current Password</Label>
-              <Input
-                id="currentPassword"
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                autoComplete="current-password"
-              />
+      {/* Change Password Card — agents' passwords are managed by their admin */}
+      {isAdmin ? (
+        <Card className="bg-card/50 border-border">
+          <CardHeader>
+            <CardTitle>Change Password</CardTitle>
+            <CardDescription>Update the password you use to sign in.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="currentPassword">Current Password</Label>
+                <Input
+                  id="currentPassword"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </div>
+              <div className="hidden md:block" />
+              <div className="space-y-2">
+                <Label htmlFor="newPassword">New Password</Label>
+                <Input
+                  id="newPassword"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
             </div>
-            <div className="hidden md:block" />
-            <div className="space-y-2">
-              <Label htmlFor="newPassword">New Password</Label>
-              <Input
-                id="newPassword"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm New Password</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-          </div>
-          <Button
-            className="gradient-primary"
-            onClick={updatePassword}
-            disabled={isUpdatingPassword}
-          >
-            {isUpdatingPassword ? "Updating..." : "Update Password"}
-          </Button>
-        </CardContent>
-      </Card>
+            <Button
+              className="gradient-primary"
+              onClick={updatePassword}
+              disabled={isUpdatingPassword}
+            >
+              {isUpdatingPassword ? "Updating..." : "Update Password"}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="bg-card/50 border-border">
+          <CardHeader>
+            <CardTitle>Password</CardTitle>
+            <CardDescription>Your password is managed by your admin. Contact them if it needs to be changed.</CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       {/* Newly Created Key Alert */}
       {newlyCreatedKey && (

@@ -157,6 +157,10 @@ router.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
+    // Agents' passwords are set by their admin only.
+    if (!req.user!.roles.some((r) => r === "admin" || r === "super_admin")) {
+      throw new HttpError(403, "Your password is managed by your admin. Please contact them to change it.");
+    }
     const { current_password, new_password } = changePasswordSchema.parse(req.body);
 
     const { rows } = await query<{ password_hash: string }>(

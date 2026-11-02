@@ -281,12 +281,20 @@ router.post(
     }
 
     const hash = await hashPassword(password);
-    await query("UPDATE app_users SET password_hash = $1, password_changed_at = now() WHERE id = $2", [
-      hash,
-      userId,
-    ]);
-    // Every device still signed in with the old password is logged out.
-    const loggedOut = await revokeAllSessions(userId, me, "password_reset");
+    // Admin accounts: every device still signed in with the old password is
+    // logged out. Agent accounts are shared by many PCs on a floor, so those
+    // stay signed in (use Security → "Log out all" to kick them deliberately).
+    const isAgentTarget = !targetRole.rows.some((r) => r.role === "admin");
+    let loggedOut = 0;
+    if (isAgentTarget) {
+      await query("UPDATE app_users SET password_hash = $1 WHERE id = $2", [hash, userId]);
+    } else {
+      await query("UPDATE app_users SET password_hash = $1, password_changed_at = now() WHERE id = $2", [
+        hash,
+        userId,
+      ]);
+      loggedOut = await revokeAllSessions(userId, me, "password_reset");
+    }
 
     res.status(200).json({ success: true, password, logged_out_devices: loggedOut });
   })
