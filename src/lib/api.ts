@@ -67,6 +67,9 @@ async function request<T = unknown>(
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      // Bypass the HTTP cache: a cached response replays stale headers such as
+      // X-Refreshed-Token, which would swap a fresh login for an old token.
+      cache: "no-store",
     });
   } catch (err) {
     throw new ApiError(0, err instanceof Error ? err.message : "Network error");

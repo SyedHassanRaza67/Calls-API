@@ -39,6 +39,15 @@ app.use(
 
 app.use(express.json({ limit: "2mb" }));
 
+// API responses are per-user and carry auth headers (X-Refreshed-Token): never
+// let a browser cache them. A cached /api/auth/me revalidated as 304 replays its
+// stored headers, which handed the client an old token right after sign-in.
+app.set("etag", false);
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 // Health check (no auth).
 app.get("/api/health", async (_req, res) => {
   try {
