@@ -460,7 +460,7 @@ const SubmissionRow = memo(function SubmissionRow({
 export function AgentWorkspace() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const { data: apiConfigs, isLoading: isLoadingConfigs } = useActiveApiConfigurations();
+  const { data: apiConfigs, isLoading: isLoadingConfigs, isError: configsError, refetch: refetchConfigs, isFetching: isFetchingConfigs } = useActiveApiConfigurations();
   const { submissions: persistedSubmissions, setSubmissions: setPersistedSubmissions, isLoading: isLoadingSubs } = useAgentSubmissions();
   const [localSubmissions, setLocalSubmissions] = useState<PersistedSubmission[]>([]);
   const [showForm, setShowForm] = useState(true);
@@ -799,6 +799,20 @@ export function AgentWorkspace() {
         <Skeleton className="h-48 w-full" />
         <Skeleton className="h-64 w-full" />
       </div>
+    );
+  }
+
+  if (configsError && !apiConfigs) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription className="flex flex-wrap items-center gap-3">
+          Couldn't load campaigns. Check your connection and try again.
+          <Button size="sm" variant="outline" onClick={() => refetchConfigs()} disabled={isFetchingConfigs}>
+            {isFetchingConfigs ? "Retrying…" : "Retry"}
+          </Button>
+        </AlertDescription>
+      </Alert>
     );
   }
 

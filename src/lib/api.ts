@@ -4,6 +4,9 @@
 
 const TOKEN_KEY = "calls_api_token";
 
+/** Fired on window when an authenticated request gets a 401. detail: { reason: string | null } */
+export const SESSION_ENDED_EVENT = "calls-api:session-ended";
+
 const BASE_URL: string =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "";
 
@@ -77,8 +80,11 @@ async function request<T = unknown>(
     setToken(refreshed);
   }
 
-  // 401 → clear token so the app routes back to /auth.
-  if (resp.status === 401) {
+  // 401 → clear token so the app routes back to /auth. Skip if a different
+  // sign-in happened while this request was in flight.
+  const sessionEnded =
+    resp.status === 401 && !!token && !opts.skipAuth && getToken() === token;
+  if (resp.status === 401 && (!token || getToken() === token)) {
     clearToken();
   }
 
@@ -89,6 +95,21 @@ async function request<T = unknown>(
       data = JSON.parse(text);
     } catch {
       data = text;
+    }
+  }
+
+  // A signed-in request was rejected (session revoked, password changed, token
+  // expired): tell the app so it signs out and routes to /auth instead of
+  // leaving the user on a page full of empty/failed data.
+  if (sessionEnded) {
+    const reason =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : null;
+    try {
+      window.dispatchEvent(new CustomEvent(SESSION_ENDED_EVENT, { detail: { reason } }));
+    } catch {
+      /* non-browser env */
     }
   }
 

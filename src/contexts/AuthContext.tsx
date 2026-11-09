@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { SESSION_ENDED_EVENT } from "@/lib/api";
+import { toast } from "@/hooks/use-toast";
 import { AppRole, Profile } from "@/lib/types";
 
 // Minimal local stand-ins for the previous external auth User/Session shapes.
@@ -120,6 +122,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.clearInterval(gpInterval);
     };
   }, [hydrate, fetchGlobalPause]);
+
+  // Server ended our session (401 on an authenticated call) → sign out locally so
+  // pages route to /auth, and tell the user why. Also follow sign-outs from other tabs.
+  useEffect(() => {
+    let lastNotice = 0;
+    const endSession = (reason: string | null) => {
+      clearAuthState();
+      setIsLoading(false);
+      queryClient.clear();
+      const now = Date.now();
+      if (now - lastNotice > 5000) {
+        lastNotice = now;
+        toast({
+          title: "Signed out",
+          description:
+            reason && reason !== "Unauthorized"
+              ? reason
+              : "Your session has ended. Please sign in again.",
+          variant: "destructive",
+        });
+      }
+    };
+    const onSessionEnded = (e: Event) => {
+      endSession((e as CustomEvent<{ reason: string | null }>).detail?.reason ?? null);
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "calls_api_token" && !e.newValue) {
+        clearAuthState();
+        queryClient.clear();
+      }
+    };
+    window.addEventListener(SESSION_ENDED_EVENT, onSessionEnded);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(SESSION_ENDED_EVENT, onSessionEnded);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [clearAuthState, queryClient]);
 
   const signUp = async (
     email: string,
